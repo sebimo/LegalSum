@@ -1,4 +1,6 @@
 data/
 nrw_data/
 processed_data/
+processed_data_otto/
+processed_data_nrw/
 .vscode/
