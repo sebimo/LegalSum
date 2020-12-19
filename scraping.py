@@ -76,7 +76,7 @@ def scrape():
     i = 0
     with open("counter.pkl", "rb") as f:
         i = pickle.load(f)
-    for link in tqdm(docs[i:max_iter]):
+    for link in tqdm(docs[i:]):
         with open("counter.pkl", "wb") as f:
             pickle.dump(i,f)
         delay = random.random()/4

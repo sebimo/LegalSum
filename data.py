@@ -46,6 +46,7 @@ class NormDatabase:
             with open(path, "rb") as f:
                 self.norm2id, self.id2norm, self.max_id = pickle.load(f)
         else:
+            raise ValueError("Created new norm database!!!")
             self.norm2id, self.id2norm, self.max_id = dict(), dict(), 0
         self.path = path
 
@@ -103,6 +104,7 @@ class Norm:
         # Example: GG § 3, §§ 3,4 GG -> [GG § 3, GG § 4]
         # We want to normalize the norms, as this will make it easier later on, when we want to retrieve them from their source document
         if self.abr[0] is None:
+            print(self.norm, self.abr, self.num)
             raise ValueError("Norm is wrongly build")
 
         abr = self.abr[0].strip()
@@ -127,19 +129,21 @@ def process_ges_bay(source: Path, destination: Path):
     """ Parses the verdicts from gesetze-bayern.de into the JSON format """
     #xsd = ValT.parse(Path("xsd")/"bayern.xsd")
     #schema = ValT.XMLSchema(xsd)
-    normDB = NormDatabase(Path("norms.db"), create=True)
+    normDB = NormDatabase(Path("norms.db"), create=False)
     segmenter = SentenceSegmenter()
     nlp = German()
     nlp.add_pipe(segmenter)
     file_counter = get_file_counter(source)
+    print(file_counter)
     # For debugging
-    if source == Path("test_data"):
-        file_counter[source] = 0
+    """if source == Path("test_data"):
+        file_counter[source] = 0"""
     
     # Restart from previous position
     files = os.listdir(source)
     for file in tqdm(files[file_counter[source]:], total=len(files)-file_counter[source]):
         # We only want the original Beck format here
+        #print(file)
         if not file.startswith("Y"):
             continue
         # Validate the schema of the file against the xsd
@@ -205,44 +209,36 @@ def process_ges_bay(source: Path, destination: Path):
                     found_norms.extend(norms) 
             elif segment.tag == "titelzeile":
                 for paragraph in segment.findall("body/div/p"):
-                    text = paragraph.text
-                    title_paragraphs.append(text)
+                    texts, norms = ges_bay_process_paragraph(paragraph, normDB)
+                    title_paragraphs.extend(texts)
+                    found_norms.extend(norms)
+            elif segment.tag == "sonstosatz":
+                for paragraph in segment.findall("body/div/p"):
+                    texts, norms = ges_bay_process_paragraph(paragraph, normDB)
+                    # We have to remove the (Rn. xx) at the end, if its there
+                    # Is it possible that we reference a norm here?
+                    texts = clean_gp(texts)
+                    guiding_principle_paragraphs.extend(texts)
+                    found_norms.extend(norms)
             elif segment.tag == "kurztext-land":
                 pass 
             else:
                 raise ValueError("Encountered unkown text segment in "+str(file)+": "+segment.tag)
 
-        splitting = None
-        roman_splitting = True
         if len(facts_paragraphs) == 0:
             reasoning_paragraphs = []
-            append_list = reasoning_paragraphs
+            append_list = facts_paragraphs
             for paragraph in paragraph_list:
-                if splitting is None and paragraph.startswith("I."):
-                    splitting = True
-                    append_list = facts_paragraphs
-                elif splitting is None and paragraph.startswith("A."):
-                    splitting = True
-                    roman_splitting = False
-                    append_list = facts_paragraphs
-                elif splitting is None:
-                    splitting = False
-
-                if splitting and roman_splitting and paragraph == "II.":
+                if paragraph in ["II.", "B.", "III."]:
                     append_list = reasoning_paragraphs
-                elif splitting and not roman_splitting and paragraph == "B.":
-                    append_list = reasoning_paragraphs
-
                 append_list.append(paragraph)
-            if len(reasoning_paragraphs) == 0 and len(facts_paragraphs) > 0:
-                # There migh be some edge cases where no "II." is found. Then we want to treat everything as reasoning
+            if len(reasoning_paragraphs) == 0:
                 reasoning_paragraphs = facts_paragraphs
-                facts_paragraphs = []                
+                facts_paragraphs = []               
         else:
             reasoning_paragraphs = paragraph_list
         
-        norms.extend(found_norms)
-        norms = list(set(norms))
+        norms = list(set(found_norms))
         norms = {norm: normDB.placeholder2norm(norm) for norm in norms}
 
         # Possible segmentation of guiding principle into amtlich (from a judge) and redaktionell (from a publisher)
@@ -317,7 +313,7 @@ def ges_bay_process_paragraph(paragraph, normDB: NormDatabase) -> (str, List[str
         str -- continous version of the paragraph
         List[str] -- the placeholders of all found norms
     """
-    # Use paragarph.iter() to iterate in document order over all subelements:
+    # Use paragraph.iter() to iterate in document order over all subelements:
     texts = []
     current_text = []
     norms = []
@@ -504,5 +500,5 @@ def update_file_counter(source, counter):
         pickle.dump(counter, f)
 
 if __name__ == "__main__":
-    #process_ges_bay(Path("data"), Path("processed_data"))
-    process_ges_bay(Path("test_data"), Path("test_json"))
+    process_ges_bay(Path("data"), Path("processed_data"))
+    #process_ges_bay(Path("test_data"), Path("test_json"))
