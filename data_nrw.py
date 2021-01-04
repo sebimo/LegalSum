@@ -30,164 +30,26 @@ import re
 from typing import List, Tuple
 import json
 from pprint import pprint
-import xml.etree.ElementTree as ET
+#import xml.etree.ElementTree as ET
+from lxml import etree
 
 from spacy.lang.de import German
 from tqdm import tqdm
 
 from sentences.sentence_segmenter import SentenceSegmenter
 
-
-class NormDatabase:
-    """ Class keeping track of the placeholder: norm association """
-    def __init__(self, path: Path, create: bool = False):
-        if not create:
-            with open(path, "rb") as f:
-                self.norm2id, self.id2norm, self.max_id = pickle.load(f)
-        else:
-            raise ValueError("Created new norm database!!!")
-            self.norm2id, self.id2norm, self.max_id = dict(), dict(), 0
-        self.path = path
-
-    def register_norm(self, norm):
-        """ Makes a lookup for the norm (, creates a new id if necessary) and returns its id placeholder """
-        if norm in self.norm2id:
-            return self.norm2id[norm]
-        else:
-            self.max_id += 1
-            placeholder = "__norm"+str(self.max_id)+"__"
-            self.norm2id[norm] = placeholder
-            self.id2norm[self.max_id] = norm
-            return placeholder
-
-    def placeholder2norm(self, placeholder):
-        """ Converts a placeholder back to its initial norm """
-        assert placeholder.startswith("__norm")
-        assert placeholder.endswith("__")
-        id = int(placeholder[len("__norm"):-len("__")])
-        return self.id2norm[id]
-
-    def __del__(self):
-        print("Closing NormDatabase...")
-        with open(self.path, "wb") as f:
-            pickle.dump((self.norm2id, self.id2norm, self.max_id), f)
-
-
-class Norm:
-    """ Wrapper class used to build up the text of xml nodes """
-
-    def __init__(self, element: ET.Element, position: int):
-        self.norms = [element]
-        self.position = position
-
-    def append(self, element: ET.Element):
-        self.norms.append(element) 
-
-    def finalize(self) -> Tuple[int, List[str]]:
-        """ Returns (position, norm_refs) """
-        # a norm always consists of two parts, i.e. we need to check which we are in. Additionally: each norm starts with the law (book) followed by the number and subnumbers etc.
-        # Example: GG § 3, §§ 3,4 GG -> [GG § 3, GG § 4]
-        # We want to normalize the norms, as this will make it easier later on, when we want to retrieve them from their source document
-        refs = []
-        for norm in self.norms:
-            assert "PUBKUERZEL" in norm.attrib
-            if "§" in norm.text:
-                with open("preprocessing_norm.txt", "a", encoding="utf-8") as f:
-                    f.write(norm.text+"\n")
-                print("Norm has wrong format with §:" + norm.text)
-                refs.append(norm.text.strip())
-                continue
-            # The last part of the text will always be a the norm if it is a word
-            # if the last part of the norm is not a word, we will use the value from "PUBKUERZEL" instead which is always nonempty
-            
-            parts = norm.text.split()
-
-            # We have to check, whether we are actually looking at a norm vs. some kind of Verordnunge etc.:
-            # We can we do this: Verordnungen or Richtlininien are referenced by a mixture of numbers, alphabetic characters and slashes
-            # -> they will not fulfill the second part of the if-statement
-            if len(parts) > 0 and not (parts[-1].isalpha() or parts[-1].isnumeric()):
-                # In this case we cannot really differiate between single and multiple norms ($ 3, 4 <-> $ 3), because we do not know what is the norm part which needs replication
-                if parts[-1] != "ff.":
-                    refs.append(" ".join(parts).strip())
-                    continue
-
-            norm_text = []
-            found_normal_text = False
-            for part in reversed(parts):
-                if part.isalpha():
-                    # We will only append roman numerals if there was no text before them
-                    if isroman(part) and found_normal_text:
-                        break
-                    else:
-                        norm_text.insert(0, part)
-                        found_normal_text = True
-                else:
-                    break
-
-            # Did we append roman numerals, but there is no norm reference found?
-            if not found_normal_text and len(norm_text) > 0:
-                norm_text = []
-            
-            # Have we even found a norm?
-            if len(norm_text) > 0:
-                # We need to check whether norm_text is the complete text or if there are still some parts missing
-                if len(norm_text) < len(parts):
-                    parts = norm_text + ["§"] + parts[:-len(norm_text)]
-                else:
-                    parts = norm_text
-            else:
-                parts.insert(0, norm.attrib["PUBKUERZEL"])
-                parts.insert(1, "§")
-
-            # Potentially splitting multi-norms:
-            norm_text = " ".join(parts).strip()
-            norm_split = norm_text.split("§")
-            assert len(norm_split) == 2
-
-            norm = norm_split[0].strip()
-            sub_norm = norm_split[1].strip()
-            sub_norm_split = sub_norm.split(",")
-
-            norm_texts = []
-            for sn in sub_norm_split:
-                norm_texts.append(norm + " § " + sn.strip())
-
-            refs.extend(norm_texts)
-        
-        return self.position, refs
-
-
-def process_otto(source: Path, destination: Path, error_path: Path=Path("error_files")):
-    """ Parses the verdicts from gesetze-bayern.de into the JSON format """
-    #xsd = ValT.parse(Path("xsd")/"bayern.xsd")
-    #schema = ValT.XMLSchema(xsd)
-    if source == Path("test_otto_data"):
-        normDB = NormDatabase(Path("norms_test.db"), create=False)
-    else:
-        normDB = NormDatabase(Path("norms.db"), create=False)
+def process_nrw(source: Path, destination: Path, error_path: Path=Path("error_files")):
+    """ Parses the verdicts from nrw into the JSON format """
     segmenter = SentenceSegmenter()
     nlp = German()
     nlp.add_pipe(segmenter)
     file_counter = get_file_counter(source)
     print(file_counter)
     # For debugging
-    if source == Path("test_otto_data"):
-        file_counter[source] = 0
-        files = [source/file for file in os.listdir(source)]
-    else:
-        files = []
-        folders = ["OttoSchmidt_BGHV_2017-2020", "OttoSchmidt_Rechtsprechung_2010-2013", "OttoSchmidt_Rechtsprechung_2014-2016"]
-        #folders = ["OttoSchmidt_BGHV_2017-2020"]
-
-        source = Path("..")/"HiWi"/"Urteile"
-
-        for folder in folders:
-            filepath = source/folder
-            for root, _, filenames in os.walk(filepath, topdown=True):
-                for filename in filenames:
-                    if os.path.basename(filename).endswith("xml"):
-                        xml_filename = Path(root)/filename
-                        files.append(xml_filename)
+    if source == Path("test_nrw_data"):
+        file_counter[source] = 1
+        
+    files = [source/file for file in os.listdir(source)]
 
     print("Extracted files")
 
@@ -196,127 +58,262 @@ def process_otto(source: Path, destination: Path, error_path: Path=Path("error_f
         # Other idea: Save the current process (how many files were processed etc.)
         # If anyting bad happens just throw an exception/use assertions 
         # Then we can investigate this file and further resume the processin
-        xml_string = read_file(file)
+        html_string = read_file(file)
         
-        root = ET.fromstring(xml_string).find("BEITRAG/ENTSCHEIDUNG")
-
-        # For the extraction of the smaller fields I decided against using additional functions as most of them are oneliners
-        id = root.attrib["AZ"]
-        date = root.attrib["DATUM"]
-        if len(date) != 8:
-            raise RuntimeError("Date has wrong format: "+ date)
-        else:
-            date = date[:4]+"-"+date[4:6]+"-"+date[6:]
-        court = root.attrib["BEHOERDE"]
-
-        try:
-            normchain = otto_normchain(root.findall("NORM"))
-        except AttributeError:
-            print(file)
-            raise ValueError("File is not correctly build.")
-        found_norms = [normDB.register_norm(norm) for norm in normchain]
-        normchain = found_norms.copy()
-        keywords = [keyword.text for keyword in root.findall("META/SCHLAGWORT")]
-        inst = [inst.text for inst in root.findall("VORINSTANZ/AKTENZEICHEN")]
-        
-        guiding_principle_paragraphs = []
-        for segment in root.findall("LEITSATZ"):
-            text, norms = otto_process_paragraph(segment, normDB)
-            if len(text) > 0 and not text[0].startswith("Leitsatz nicht"):
-                guiding_principle_paragraphs.extend(text)
-                found_norms.extend(norms)
-
-        tenor_paragraphs = []
-        for segment in root.findall("ENTSCHEIDUNGSFORMEL"):
-            text, norms = otto_process_paragraph(segment, normDB)
-            tenor_paragraphs.extend(text)
-            found_norms.extend(norms)
-        
-        facts_paragraphs = []
-        for segment in root.findall("TATBESTAND"):
-            text, norms = otto_process_paragraph(segment, normDB)
-            facts_paragraphs.extend(text)
-            found_norms.extend(norms)
-
-        reasoning_paragraphs = []
-        for segment in root.findall("GRUENDE"):
-            text, norms = otto_process_paragraph(segment, normDB)
-            reasoning_paragraphs.extend(text)
-            found_norms.extend(norms)
-
-        #assert len(facts_paragraphs) > 0 or len(reasoning_paragraphs) > 0
-        #assert len(reasoning_paragraphs) > 0
-        if len(reasoning_paragraphs) == 0:
-            with open("preprocessing_file.txt", "a", encoding="utf-8") as f:
-                f.write(str(file)+"\n")
-                print("File empty:" + str(file))
-
-        title_paragraphs = []
-
-        # TODO Look if this is necessary
-        """if len(facts_paragraphs) == 0:
-            reasoning_paragraphs = []
-            append_list = facts_paragraphs
-            for paragraph in paragraph_list:
-                if paragraph in ["II.", "B.", "III."]:
-                    append_list = reasoning_paragraphs
-                append_list.append(paragraph)
-            if len(reasoning_paragraphs) == 0:
-                reasoning_paragraphs = facts_paragraphs
-                facts_paragraphs = []               
-        else:
-            reasoning_paragraphs = paragraph_list"""
-        
-        norms = list(set(found_norms))
-        norms = {norm: normDB.placeholder2norm(norm) for norm in norms}
-
-        # Possible segmentation of guiding principle into amtlich (from a judge) and redaktionell (from a publisher)
-        # Criterion is whether they end with "(amtlicher Leitsatz)" or "(redaktioneller Leitsatz)"
-        # If no annotation, we assume it is a guiding principle by a judge
-        # Currently I have found one document with "amtlicher Leitsatz", i.e. we need to do the segmentation
-        gp_judge = []
-        gp_publisher = []
-        for gp in guiding_principle_paragraphs:
-            if gp.endswith("(amtlicher Leitsatz)"):
-                gp_judge.append(gp[:-len("(amtlicher Leitsatz)")].strip())
-            elif gp.endswith("(redaktioneller Leitsatz)"):
-                gp_publisher.append(gp[:-len("(redaktioneller Leitsatz)")].strip())
-            elif gp.endswith("Leitsatz)"):
-                print(file)
-                raise ValueError("We need to segment the guiding principle...")
-            else:
-                gp_judge.append(gp)
-
-
-        # Do sentence segmentation for all text segments
-        title_paragraphs = get_segment_sentences(nlp, title_paragraphs)
-        gp_judge = get_segment_sentences(nlp, gp_judge)
-        gp_publisher = get_segment_sentences(nlp, gp_publisher)
-        tenor_paragraphs = get_segment_sentences(nlp, tenor_paragraphs)
-        facts_paragraphs =  get_segment_sentences(nlp, facts_paragraphs)
-        reasoning_paragraphs = get_segment_sentences(nlp, reasoning_paragraphs)            
+        parser = etree.HTMLParser()
+        root = etree.fromstring(html_string, parser).find("body")
+        divs = root.findall("div")
+        divs = list(filter(lambda div: "class" in div.attrib and div.attrib["class"] == "maindiv" and len(div) > 0, divs))
 
         data = {
-            "id": id,
-            "date": date,
-            "court": court, 
-            "normchain": normchain, 
-            "norms": norms, 
-            "inst": inst, 
-            "keywords": keywords,
-            "title": title_paragraphs,
-            "guiding_principle": [gp_judge, gp_publisher], 
-            "tenor": tenor_paragraphs,
-            "facts": facts_paragraphs,
-            "reasoning": reasoning_paragraphs
+            "id": "",
+            "date": "",
+            "court": "", 
+            "normchain": [], 
+            "norms": [], 
+            "inst": [], 
+            "keywords": [],
+            "title": [],
+            "guiding_principle": [[], []], 
+            "tenor": [],
+            "facts": [],
+            "reasoning": []
         }
         
+        for div in divs:
+            # Assumptions before processing: div has class "maindiv" and has at least one subelement
+            # Gameplan: I think we can seperate the divs into two categories:
+            #   - divs with "feldbezeichnung" and "feldinhalt"
+            #   - divs with spans/p texts -> this should be the reasoning and facts
+            # Assumption: No mixed divs -> TODO check this
+            # 1. we need to differentiate between them
+            # 2. write procedure for both of them
+            # 2.1. should be staight forward via a state machine, which keeps track of the last "feldbezeichnung" and append the "feldinhalt" there
+            # 2.2. we need to differentiate between the content -> facts and reasoning are seperated by a headline
+            # 3. use generic method to extract text from p tags
+            if div[0].tag == "div" and "class" in div[0].attrib and div[0].attrib["class"] == "feldbezeichnung":
+                try:
+                    new_data = process_div(div)
+                    merge(data, new_data)
+                except:
+                    raise ValueError("Unknown div structure in: "+str(file)) 
+            elif div[0].tag in ["span", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "div", "p", "br"]:
+                try:
+                    new_data = process_span(div)
+                    merge(data, new_data)
+                except:
+                    raise ValueError("Unknown span structure in: "+str(file))   
+            else:
+                print(div[0].tag, div[0].attrib)
+                raise ValueError("Unknown structure in: "+str(file))
+
+        # Do sentence segmentation for all text segments
+        data["guiding_principle"][0] = get_segment_sentences(nlp, data["guiding_principle"][0])
+        data["guiding_principle"][1] = get_segment_sentences(nlp, data["guiding_principle"][1])
+
+        # Some texts use non-breaking spaces for anonymization; we want to remove them
+        data["tenor"] = list(map(lambda p: p.replace("\u00A0", ""), data["tenor"]))
+        data["facts"] = list(map(lambda p: p.replace("\u00A0", ""), data["facts"]))
+        data["reasoning"] = list(map(lambda p: p.replace("\u00A0", ""), data["reasoning"]))
+        data["tenor"] = get_segment_sentences(nlp, data["tenor"])
+        data["facts"] =  get_segment_sentences(nlp, data["facts"])
+        data["reasoning"] = get_segment_sentences(nlp, data["reasoning"])   
+
+        # For the files which we possibly need to check afterwards...
+        if source != Path("test_nrw_data"): 
+            if len(data["reasoning"]) == 0:
+                with open("preprocessing_file.txt", "a", encoding="utf-8") as f:
+                    f.write(str(file)+"\n")
+                    print("File empty:" + str(file))         
+        
         # Extract filename for saving file
-        file_name = Path(file).name[:-len(".xml")]
+        file_name = Path(file).name[:-len(".html")]
         save_json(data, destination/(file_name+".json")) 
 
         update_file_counter(source, file_counter)
             
+def process_div(div: etree.Element) -> dict:
+    """ Processes a div which consists only of divs with classes "feldbezeichnung" and "feldinhalt" """
+    # Check that all subelements only have those two possible classes
+    data = {}
+    for elem in div:
+        if elem.tag == "div" and "class" in elem.attrib and elem.attrib["class"] in ["feldbezeichnung", "feldinhalt"]:
+            continue
+        else:
+            print(elem.tag, elem.attrib)
+            raise ValueError("Div has wrong format.")
+
+    # field will tell us which information is stored in the following fields. If we do not want to keep a "feldbezeichung", set it to "unimportant"
+    field = None
+    text2field = {
+        "Datum": "date",
+        "Gericht": "court",
+        "Aktenzeichen": "id",
+        "Schlagworte": "keywords",
+        "Tenor": "tenor",
+        "Vorinstanz": "inst",
+        "Leitsätze": "guiding_principle",
+        "Normen": "normchain",
+        "Spruchkörper": "unimportant",
+        "Sachgebiet": "unimportant",
+        "Rechtskraft": "unimportant",
+        "Nachinstanz": "unimportant",
+        "Entscheidungsart": "unimportant",
+        "ECLI": "unimportant"
+    }
+    for elem in div:
+        if elem.attrib["class"] == "feldbezeichnung":
+            if field is not None:
+                raise ValueError("Wrong structure of divs...")
+            for k in text2field:
+                if elem.text.startswith(k):
+                    field = text2field[k]
+                    break
+            if field is None:
+                raise ValueError("Unknown field: "+elem.text)
+        elif field is not None:
+            # Individual data processing for all fields
+            if field != "unimportant":
+                if field == "date":
+                    assert len(elem.text) == len("DD.MM.YYYY"), "Date has wrong format: "+elem.text
+                    assert elem.text[0:2].isnumeric() and elem.text[2] == "." and elem.text[3:5].isnumeric() and elem.text[5] == "." and elem.text[6:].isnumeric(), "Date has wrong format: "+elem.text
+                    data[field] = elem.text[6:]+"-"+elem.text[3:5]+"-"+elem.text[0:2]
+                elif field == "court":
+                    data[field] = elem.text
+                elif field == "id":
+                    data[field] = elem.text
+                elif field == "tenor":
+                    text = []
+                    for p in elem.findall("p"):
+                        text.append(nrw_process_paragraph(p))
+                    if field not in data:
+                        data[field] = text
+                    else:
+                        data[field].extend(text)
+                elif field == "guiding_principle":
+                    text = []
+                    for p in elem.findall("p"):
+                        text.append(nrw_process_paragraph(p))
+                    
+                    if len(text) > 0:
+                        stored_gp = data.get(field, [[],[]])
+                        last_sent = text[-1].strip().lower()
+                        if "leitsatz" not in last_sent:
+                            stored_gp[0].extend(text)
+                        elif last_sent.endswith("Leitsatz vom Gericht"):
+                            stored_gp[0].extend(text)
+                        elif last_sent.endswith("kein leitsatz") or last_sent.endswith("kein leitsatz vorhanden"):
+                            pass
+                        elif "(redaktioneller leitsatz" in last_sent:
+                            stored_gp[1].extend(text)
+                        else:
+                            raise ValueError("New guiding principle format"+text[-1])
+                            stored_gp[1].extend(text)
+                        
+                        data[field] = stored_gp
+                elif field == "normchain":
+                    stored_nc = data.get(field, [])
+                    stored_nc.append(elem.text)
+                    data[field] = stored_nc
+                elif field == "keywords":
+                    if len(elem) > 0:
+                        # We have some subelements
+                        raise ValueError("Keywords wrong format")
+                    else:
+                        split = elem.text.splitlines()
+                        words = []
+                        for word in split:
+                            words.append(word.strip())
+                        words = list(filter(lambda word: len(word)>0, words))
+                        data[field] = words
+                elif field == "inst":
+                    if len(elem) > 0:
+                        # We have some subelements
+                        raise ValueError("Instances wrong format")
+                    else:
+                        # Assumption: Before , we have the court name, afterwards the id -> we only want the id
+                        split = elem.text.split(",")
+                        if len(split) == 2:
+                            temp_court = split[0].strip()
+                            temp_id = split[1].strip()
+                            # We are basically checking the possible id formats which are possible here -> id can be starting with numeric or mix of alphanumeric
+                            if True:
+                                assert temp_court.split(" ", maxsplit=1)[0].isalpha() and ((temp_id.split(" ", maxsplit=1)[0].isnumeric() or isroman(temp_id.split(" ", maxsplit=1)[0])) or 
+                                    (temp_id.split(" ", maxsplit=1)[0].isalnum() and not temp_id.split(" ", maxsplit=1)[0].isalpha()) or
+                                    (temp_id.split("-", maxsplit=1)[0].isalpha() and temp_id.split("-", maxsplit=1)[0].isupper()) or
+                                    (temp_id.split("-", maxsplit=1)[0].isnumeric()) or
+                                    (temp_id.split(" ", maxsplit=1)[0].isalpha() and temp_id.split(" ", maxsplit=1)[0].isupper()) or
+                                    temp_id.split(" ", maxsplit=1)[0] in ["Ba", "BVGa", "Qu", "Ns", "StVK", "Vollz", "KLs", "LwG", "Lw", "GnR", "Ks", "Hagen", "StVG", "Qs", "Grundbuch"]), "Wrong previous instance "+ elem.text
+                            text = split[1].strip()
+                            if field not in data:
+                                data[field] = [text]
+                            else:
+                                data[field].extend(text)
+                        elif len(split) == 1 and (split[0].split(" ")[0].isnumeric() or isroman(split[0].split(" ")[0])):
+                            text = split[0]
+                            if field not in data:
+                                data[field] = [text]
+                            else:
+                                data[field].extend(text)
+                else:
+                    raise ValueError("Unknown field: "+field)
+            field = None
+        else:
+            raise ValueError("Wrong order of divs...")
+    return data
+
+def process_span(div: etree.Element) -> dict:
+    """ Processes a div which contains the main text body of the verdict, i.e. contains the facts and reasoning """
+    # Check that all subelements are spans
+    tag_set = set(["span", "p", "ul", "ol", "li", "table", "tr",  "h1", "h2", "h3", "h4", "h5", "h6", "br", "hr", "blockquote", "div", "img"])
+    for elem in div:
+        if elem.tag in tag_set:
+            continue
+        else:
+            raise ValueError("Span has wrong format: "+elem.tag)
+    # We extract the text from all the p elements and break based on the headlines "Gründe", "Tatbestand", "Entscheidungsgründe"
+    # We might want to write paragarphs which only contain a single word into a file to manually check them
+    facts = []
+    reasoning = []
+    current = reasoning
+    for p in div:
+        # We will ignore blockquotes, as they are anynomized
+        if p.tag in ["span", "table", "br", "hr", "div", "img"]:
+            continue
+
+        text = nrw_process_paragraph(p)
+        # We will now look at the first 42 characters (double the length of "Entscheidungsgründe" + buffer, as there are sometimes spaces between characters...)
+        # to determine, if the paragraph contains a headline word
+        temp = text[:42].lower().replace(" ", "")
+        if temp.startswith("gründe") or temp.startswith("entscheidungsgründe"):
+            current = reasoning
+            continue
+        elif temp.startswith("tatbestand"):
+            current = facts
+            continue
+
+        current.append(text)
+        if len(text.split(" ", maxsplit=1))==1 or len(text) < 5 or text[1] == " ":
+            with open("short.text", "a", encoding="utf-8") as f:
+                f.write(text)
+
+    return {"facts": facts, "reasoning": reasoning}
+
+def merge(data: dict, new_data: dict):
+    """ Returns a merged variant of the both data entries """
+    for k in new_data:
+        if len(data[k]) == 0:
+            data[k] = new_data[k]
+        else:
+            if k in ["id", "date", "court"]:
+                raise ValueError("Multiple entries for "+k)
+            elif k == "guiding_principle":
+                data[k][0].extend(new_data[k][0])
+                data[k][1].extend(new_data[k][1])
+            else:
+                data[k].extend(new_data[k])
+
+
 def get_segment_sentences(nlp: German, segment: List[str]) -> List[str]:
     """ Do sentence segmentation on the segment """
     docs = nlp.pipe(segment)
@@ -326,118 +323,25 @@ def get_segment_sentences(nlp: German, segment: List[str]) -> List[str]:
             sentences.append(s.text)
     return sentences
 
-def otto_process_paragraph(paragraph, normDB: NormDatabase) -> (str, List[str]):
+def nrw_process_paragraph(paragraph) -> str:
     """ Creates a continous string for the paragraph and replaces all the found norms with their placeholder 
     Returns:
         str -- continous version of the paragraph
-        List[str] -- the placeholders of all found norms
     """
     # Use paragraph.iter() to iterate in document order over all subelements:
     texts = []
-    current_text = []
-    norms = []
-    current_norms = None
     
     for element in paragraph.iter():
-        # Each paragraph needs to be seperated from one another and then recursively added to the current_text (depending on subelements)
-        if element.tag in ["P", "UL"]:
-            if len(current_text) > 0:
-                insert_norm(current_text, current_norms, norms, normDB)
-                current_norms = None
-
-                texts.append(" ".join(current_text).strip())
-                current_text = []
-
-        # When do we save the norm?
-        # 1. As soon as we get the first tag, which is not a norm
-        # 2. If we get another "VERWEIS-GS" and we already have a current_norms -> case if there are two norms directly following each other
-        # We will have a problem if there are multiple VERWEIS-GS after another seperated with commas with reference the same law
-        # Plan accumulate "VERWEIS-GS" until we find another tag or the tail is not ","?
-        if element.tag == "VERWEIS-GS":
-            if current_norms is None:
-                current_norms = Norm(element, len(current_text))
-            else:
-                current_norms.append(element)
-        elif element.tag in ["RZ", "TITEL", "LI"]:
-            insert_norm(current_text, current_norms, norms, normDB)
-            current_norms = None
-
+        if element.tag in ["span", "table", "br", "hr", "blockquote"]:
             continue
-        elif element.text is not None:
-            # We will remove all spaces and join on them later on, as we can remove some possible edgecases that way
-            insert_norm(current_text, current_norms, norms, normDB)
-            current_norms = None
+        if element.text is not None:
+            texts.append(element.text.strip())
+        if element.tail is not None:
+            texts.append(element.tail.strip())
+    
+    texts = " ".join(texts).strip()
 
-            insert_text = element.text.strip()
-            if len(insert_text) > 0:
-                current_text.append(insert_text)
-        
-        if element.tail is not None and not (element.tag == "VERWEIS-GS" and element.tail.strip() == ","):
-            insert_norm(current_text, current_norms, norms, normDB)
-            current_norms = None
-            
-            insert_text = element.tail.strip()
-            if len(insert_text) > 0:
-                current_text.append(element.tail.strip())
-
-    if len(current_text) > 0:
-        insert_norm(current_text, current_norms, norms, normDB)
-        current_norms = None
-
-        texts.append(" ".join(current_text).strip())
-
-    norms = [norm.strip() for norm in norms]
-
-    return (texts, norms)
-
-def seperate_norms(norm_text: str) -> List[str]:
-    """ Splits up the norm string into all its individual norms.
-    Examples: "§ 3" -> ["§ 3"], "§§ 3, 4" -> ["§ 3", "§ 4"]
-    Returns:
-        List[str] -- all individual norms
-    """
-    # We only replace the first occurence
-    norm_text = norm_text.replace("§§", "§", 1)
-    norms = norm_text.split(",")
-    processed_norms = [norms[0]]
-    for norm in norms[1:]:
-        processed_norms.append("§"+norm)
-    for norm in processed_norms:
-        assert norm.startswith("§ "), "Norm in wrong format:"+norm
-    return processed_norms
-
-def insert_norm(text: List[str], current_norms: Norm, norms: List[str], normDB: NormDatabase):
-    """ We will insert all the norms at the specific position """
-    if current_norms is not None:
-        position, norm_refs = current_norms.finalize()
-        norm_refs = [normDB.register_norm(norm) for norm in norm_refs]
-        norms.extend(norm_refs)
-
-        norm_text = " ".join(norm_refs).strip() 
-        text.insert(position, norm_text)
-
-def otto_normchain(norm_nodes) -> List[str]:
-    normchain = []
-    for norm_node in norm_nodes:
-        # We are saving the placeholders, not the norms!
-        text = norm_node.text
-        text = text.replace("§§", "§")
-        if "," in text:
-            norm_split = [t.strip() for t in text.split("§")]
-            norm_split = [t for t in norm_split if len(t) > 0]
-            if len(norm_split) == 2:
-                subnorm_split = [t.strip() for t in norm_split[1].split(",")]
-                subnorm_split = [t for t in subnorm_split if len(t) > 0]  
-                for subnorm in subnorm_split:
-                    normchain.append(norm_split[0] + " § " + subnorm)      
-            else:
-                with open("preprocessing_norm.txt", "a", encoding="utf-8") as f:
-                    f.write(text+"\n")
-                print("Normchain has wrong format:" + text)
-        else:
-            if len(text) > 0:
-                normchain.append(text)
-    return normchain
+    return texts
 
 def save_json(dic, filepath):
     with io.open(filepath, "w+", encoding='utf-8') as f:
@@ -451,7 +355,7 @@ def read_file(path):
 
 def get_file_counter(source: Path):
     try:
-        with open("file_counter_otto.pkl", "rb") as f:
+        with open("file_counter_nrw.pkl", "rb") as f:
             # Counter is a dictionary that maps from each Path to its processed files number
             counter = pickle.load(f)
     except FileNotFoundError:
@@ -461,6 +365,11 @@ def get_file_counter(source: Path):
         counter[source] = 0
 
     return counter
+
+def update_file_counter(source, counter):
+    counter[source] = counter[source] + 1
+    with open("file_counter_nrw.pkl", "wb") as f:
+        pickle.dump(counter, f)
 
 def isroman(text: str) -> bool:
     """ Returns true only if text is a valid roman numeral """
@@ -475,11 +384,6 @@ def isroman(text: str) -> bool:
             return False
     return True
 
-def update_file_counter(source, counter):
-    counter[source] = counter[source] + 1
-    with open("file_counter_otto.pkl", "wb") as f:
-        pickle.dump(counter, f)
-
 if __name__ == "__main__":
-    process_otto(Path("..")/"HiWi"/"Urteile", Path("processed_data_otto"))
-    #process_otto(Path("test_otto_data"), Path("test_otto_json"))
+    process_nrw(Path("nrw_data"), Path("processed_data_nrw"))
+    #process_nrw(Path("test_nrw_data"), Path("test_nrw_json"))
