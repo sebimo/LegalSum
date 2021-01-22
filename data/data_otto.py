@@ -145,7 +145,8 @@ def process_otto(source: Path, destination: Path, error_path: Path=Path("error_f
         folders = ["OttoSchmidt_BGHV_2017-2020", "OttoSchmidt_Rechtsprechung_2010-2013", "OttoSchmidt_Rechtsprechung_2014-2016"]
         #folders = ["OttoSchmidt_BGHV_2017-2020"]
 
-        source = Path("..")/"HiWi"/"Urteile"
+        # TODO change this path to your own OttoSchmidt path
+        source = Path("..")/".."/"HiWi"/"Urteile"
 
         for folder in folders:
             filepath = source/folder

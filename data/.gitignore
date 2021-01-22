@@ -9,4 +9,6 @@ test_nrw_data/
 test_nrw_json/
 test_data/
 test_json/
+dataset/
+counter/
 .vscode/
