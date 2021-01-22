@@ -1,0 +1,12 @@
+data/
+nrw_data/
+processed_data/
+processed_data_otto/
+processed_data_nrw/
+test_otto_data/
+test_otto_json/
+test_nrw_data/
+test_nrw_json/
+test_data/
+test_json/
+.vscode/
