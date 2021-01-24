@@ -1,0 +1,112 @@
+{
+    "id": "34 Wx 446/14",
+    "date": "2015-01-14",
+    "court": "OLG München",
+    "normchain": [
+        "__norm164__",
+        "__norm165__",
+        "__norm166__",
+        "__norm167__",
+        "__norm168__"
+    ],
+    "norms": {
+        "__norm176__": "GNotKG § 36 Abs. 3",
+        "__norm172__": "GBO § 46 Abs. 1",
+        "__norm173__": "BGB § 874",
+        "__norm164__": "BGB § 1026",
+        "__norm166__": "GBO § 53 Abs. 1",
+        "__norm169__": "GBO § 53",
+        "__norm177__": "GBO § 78 Abs. 2",
+        "__norm165__": "GBO § 22",
+        "__norm167__": "GBO § 71 Abs. 1",
+        "__norm174__": "BGB § 1019",
+        "__norm171__": "GBO § 71 Abs. 2",
+        "__norm175__": "GBO § 22 Abs. 1",
+        "__norm170__": "GBO § 71 Abs. 2 Satz 1",
+        "__norm168__": "GBO § Abs. 2"
+    },
+    "inst": [],
+    "keywords": [
+        "Widerspruch",
+        "Löschung"
+    ],
+    "title": [
+        "Widerspruch bei Löschung von Grunddienstbarkeit nach Teilung dienenden Grundstücks"
+    ],
+    "guiding_principle": [
+        [
+            "1. Wird eine Grunddienstbarkeit nach Teilung des dienenden Grundstücks an einem Teil gelöscht, obwohl der Ausübungsbereich des Rechts sich auch auf den Teil erstreckt, kommt die Eintragung eines Widerspruchs zugunsten des Berechtigten in Betracht.",
+            "2. Gegen die Eintragung des Widerspruchs kann mit dem Ziel, diesen zu löschen, unbeschränkte Beschwerde erhoben werden.",
+            "Begründet ist das Rechtsmittel, wenn bei der Eintragung/Löschung des vom Widerspruch betroffenen Rechts gesetzliche Vorschriften nicht verletzt wurden oder sich die Unrichtigkeit des Grundbuchs als nicht glaubhaft erweist."
+        ],
+        []
+    ],
+    "tenor": [
+        "I.",
+        "Die Beschwerde der Beteiligten gegen die am 16. Oktober 2014 vorgenommene Eintragung eines Amtswiderspruchs zugunsten x und x gegen die Löschung des Geh- und Fahrtrechts (Abt. II/8) an dem im Grundbuch des Amtsgerichts Freising für Giggenhausen Bl. 1028 eingetragenen Grundstück Flst. x wird zurückgewiesen.",
+        "II.",
+        "Der Beschwerdewert beträgt 5.000,00 €."
+    ],
+    "facts": [
+        "I.",
+        "Die Beteiligte ist als Eigentümerin vom Grundbesitz im Grundbuch eingetragen.",
+        "Ende 2007 verkaufte sie hiervon Teilflächen, welche nach Messungsanerkennung und Auflassung vom 28.2.2008 nun das Grundstück FlSt. 12/2 bilden.",
+        "Für die jeweiligen Eigentümer des neu geschaffenen Grundstücks wurde eine Grunddienstbarkeit (Geh- und Fahrtrecht) an dem Grundstück FlSt. 12 der Beteiligten mit folgendem Inhalt (Abschnitt X.2. der Urkunde vom 10.12.2007) bestellt:",
+        "Der jeweilige Eigentümer des herrschenden Grundstücks ist berechtigt neben dem Eigentümer des dienenden Grundstücks, auf dem dienenden Grundstück zu gehen und mit Fahrzeugen aller Art zu fahren.",
+        "Der Ausübungsbereich ist in dem dieser Erklärung beigefügten Lageplan 2 farblich gelb eingezeichnet (Zufahrt mit Wendehammer).",
+        "Die Lage sowie die Maße des Wendehammers sind aus dem Lageplan 2 ersichtlich.",
+        "Der Wendehammer hat eine Länge von 20 m, nördlich eine Breite von 14,5 m, die westliche Grenze bildet eine 6 m lange Linie parallel zur Ostgrenze und anschließend eine schräge Linie zum Verlauf des bisherigen Weges hin.",
+        "In der notariellen Urkunde vom 28.2.2008 („Messungsanerkennung und Auflassung“) ist der Ausübungsbereich der Dienstbarkeit so beschrieben:",
+        "Unter Bezugnahme auf Abschnitt X der Vorurkunde stellen die Vertragsteile fest, dass sich das herrschende Grundstück beschreibt als Flst. 12/2 zu 239 m2 und Flst. 13/15 zu 161 m2 bzw. als Flst. 12/2 zu 400 m 2 nach Vollzug der Verschmelzung gemäß Abschnitt 6 dieser Urkunde und das dienende Grundstück als Flst. 12 zu 1561 mF und Flst. 12/3 zu 7 mF.",
+        "Der Verkäufer weist nochmals auf den Ausübungsbereich des Geh- und Fahrtrechts, der im nördlichen Bereich am Knick des Grundstücks Flst. 12/2 endet, hin.",
+        "Auf die zur selben Urkunde erteilte Bewilligung wurde die Grunddienstbarkeit am 31.3.2008 u. a. am gegenständlichen Grundstück Flst. 12 im Grundbuch eingetragen.",
+        "An der südwestlichen Grenze des (veräußerten) Flurstücks 12/2 befindet sich das langgezogene, nach Norden spitzwinklig verlaufende Flurstück 12/3; in dessen spitzen Winkel knickt die Westgrenze des Flurstücks 12/2 ab und verläuft in nordöstlicher Richtung.",
+        "Westlich von Flurstück 12/3, jedoch nicht auf dessen gesamter Länge, schließt sich das später herausgemessene Flurstück 12/5 an, auf dem sich der sogenannte Wendehammer befindet.",
+        "Dieser ragt in das Flurstück 12 hinein, das an seine nördliche und westliche Grenze anschließt.",
+        "Im nördlichen Bereich, noch vor dem beschriebenen „Knick“, grenzen die Flurstücke 12/2 und 12 aneinander.",
+        "Im Rahmen der Veräußerung des Flurstücks 12/5 an die Gemeinde wurde auf Antrag der Beteiligten, die Restfläche des Flurstücks 12 lastenfrei nach __norm164__ abzuschreiben, ohne Bewilligung und ohne Anhörung der Berechtigten am 29.10.2009 die Dienstbarkeit auf diesem Grundstück gelöscht.",
+        "Auf Anregung der Eigentümer des herrschenden Grundstücks FlSt 12/2 hat das Grundbuchamt am 16.10.2014 gegen die Löschung zu deren Gunsten einen Amtswiderspruch nach __norm169__ eingetragen.",
+        "Gegen den eingetragenen Widerspruch richtet sich die Beschwerde der Beteiligten, der das Grundbuchamt nicht abgeholfen hat.",
+        "Die Beteiligte ist der Meinung, das Geh- und Fahrtrecht beschränke sich auf die verselbstständigte Fläche des Wendehammers (FlSt. 12/5)."
+    ],
+    "reasoning": [
+        "II.",
+        "Die Beschwerde hat keinen Erfolg.",
+        "1. Gegen eine Eintragung ist die Grundbuchbeschwerde ( __norm167__ ) zwar grundsätzlich unzulässig ( __norm170__ ).",
+        "Der Zweck des __norm171__ verbietet aber nur die Anfechtung solcher Eintragungen, an die sich ein gutgläubiger Erwerb anschließen kann.",
+        "Wo das nicht der Fall ist, kann mit der Beschwerde die Löschung der Eintragung verlangt werden (vgl. Demharter GBO 29. Aufl. § 71 Rn. 37).",
+        "Unbeschränkt anfechtbar ist daher die Eintragung eines Widerspruchs (BayObLGZ 1952, 24/26; 1986, 294/297; Hügel/Kramer GBO 2. Aufl. § 71 Rn. 110 und 143; Demharter § 71 Rn. 39) mit dem Ziel seiner Löschung (im Ergebnis ebenso Meincke in Bauer/von Oefele GBO 3. Aufl. § 53 Rn. 88).",
+        "Die Beteiligte ist als Eigentümerin des von der Eintragung des Widerspruchs betroffenen Grundstücks auch beschwerdeberechtigt.",
+        "2. In der Sache ist das Rechtsmittel nicht begründet.",
+        "Ein im Grundbuch eingetragener Widerspruch ist auf die Beschwerde hin (u. a.) zu löschen, wenn bei der Eintragung/Löschung des vom Widerspruch betroffenen Rechts gesetzliche Vorschriften nicht verletzt wurden oder sich die Unrichtigkeit des Grundbuchs als nicht glaubhaft erweist, also die Voraussetzungen für die Eintragung nach __norm166__ nicht gegeben waren (OLG Düsseldorf Rpfleger 2001, 230; auch BayObLGZ 1978, 15/17; Demharter § 53 Rn. 41).",
+        "Indessen hatte das Grundbuchamt bei der Löschung der Dienstbarkeit an Flurstück 12 eine Rechtsverletzung begangen.",
+        "Zudem ist zumindest glaubhaft, das heißt überwiegend wahrscheinlich, dass das Grundbuch durch die Löschung unrichtig geworden ist, weil materiell-rechtlich an diesem Grundstück das Geh- und Fahrtrecht nach wie vor besteht.",
+        "Dazu wurde bei der Anregung, einen Amtswiderspruch einzutragen, zutreffend auf die im Folgenden geschilderte Urkundenlage verwiesen.",
+        "a) Von der Dienstbarkeit wird nach Teilung ein Grundstück frei, wenn es außerhalb des Bereichs der Ausübung liegt ( __norm164__ ).",
+        "Das Recht erlischt nur auf dem Teil, der völlig außerhalb des Bereichs liegt, auf den seine Ausübung rechtlich und nicht nur tatsächlich beschränkt ist (vgl. Pa-landt/Bassenge BGB 74. Aufl. § 1026 Rn. 2).",
+        "An den Nachweis des Erlöschens sind strenge Anforderungen zu stellen.",
+        "Die Löschung ( __norm172__ ) erfolgt auf (Berichtigungs-)Antrag.",
+        "b) Es ist - zumindest - glaubhaft, dass das Recht an dem Restgrundstück FlSt 12 nicht erloschen ist, sondern wegen seines Ausübungsbereichs auch dort noch besteht.",
+        "(1) Die Beteiligte ist zwar der Ansicht, dass die Dienstbarkeit lediglich auf der „Zufahrt mit Wendehammer“ lastet.",
+        "Diese Sichtweise ergibt sich namentlich aus der Urkunde vom 14.10.2014 (Messungsanerkennung und Auflassung zur Urkunde vom 23.4. 2009:",
+        "Kaufvertrag der Beteiligten mit der Gemeinde über die Fläche des Wendehammers), in deren Ziffer VIII. („Freistellung“) festgehalten ist, dass die Restfläche von FlSt 12 von den Grunddienstbarkeiten freigestellt werden solle und dass dazu für die Eigentümer die Verpflichtung bestehe, „nachdem der Wendehammer mit den gleichen Maßen, wie in der vorgenannten Urkunde (vom 10.12.2007) ausgewiesen, nunmehr an die Gemeinde N. veräußert wurde“.",
+        "(2) Indessen kann es hierauf für den Inhalt der festgelegten Ausübungsbeschränkung, wofür die Bewilligung ( __norm173__ ) maßgeblich ist, nicht ankommen.",
+        "Vielmehr wird in der Bewilligung vom 28.2.2008 der Ausübungsbereich primär nach dem „Lageplan 2“ beschrieben und unter Bezug auf die getroffene Vereinbarung („nochmals“) von der bewilligenden Verkäuferin erklärt, der Bereich ende am „Knick“ des Flurstücks 12/2. Der nächstliegenden Bedeutung nach (siehe BGHZ 113, 374/378 zur Auslegung von Grundbucherklärungen) ist damit der Punkt gemeint, an dem die Flurstücke 12/3, 12/2 und 12 zusammentreffen.",
+        "Dort befindet sich der sogenannte Knick, nicht aber bereits weiter südlich an der Nordgrenze des neu gebildeten (Wendehammer-) Grundstücks, wo zwar aktuell ein Messpunkt eingezeichnet, ein „Knick“ jedoch nicht vorhanden ist.",
+        "(3) Freilich wird in der Urkunde vom 10.12.2007, auf die in der Messungsanerkennung und Auflassung vom 28.2.2008 Bezug genommen ist, der Ausübungsbereich mit der „Zufahrt mit Wendehammer“ beschrieben.",
+        "Dieselbe Sichtweise findet sich in Ziffer VIII. der oben erwähnten Urkunde vom 23.4.2009. Für den Ausübungsbereich ist aber in der Urkunde vom 10.12.2007 auf einen beigefügten „Lageplan 2“ verwiesen, in dem dieser gelb eingezeichnet ist.",
+        "Hiernach reicht - selbst bei unterstellten Ungenauigkeiten in der Strichführung - das bewilligte Geh- und Fahrtrecht bis zu dem im westlichen Grenzverlauf des neu gebildeten Grundstücks befindlichen „Knick“, der in der Urkunde vom 28.2.2008 ausdrücklich angesprochen wird.",
+        "Ein solcher existiert an der Westgrenze des herrschenden Grundstücks in dieser ins Auge springenden Ausbildung nur einmal.",
+        "Der offensichtlich von der Beteiligten gemeinte (Mess-)Punkt, den sie im Beschwerdeverfahren auf einem Lageplan handschriftlich vermerkt („erster Knick“) vorgelegt hat, befindet sich auf der gerade verlaufenden Grundstücksgrenze in Höhe der nördlichen Grenze des Wendehammers.",
+        "Dass die damaligen Vertragsparteien trotz und entgegen der gerade zur Fixierung beigefügten Skizze den Ausübungsbereich des bestellten Geh- und Fahrtrechts auf den seinerzeit zwar wohl schon bestehenden, aber noch nicht herausgemessenen Wendehammer als solchen beschränken wollten, war für das Grundbuchamt aus der Urkundenlage nicht ableitbar, zumal einer derartigen Sichtweise auch die notariell festgehaltene Erklärung des Verkäufers (= der Beteiligten) anlässlich der Bewilligung entgegensteht und diese gerade die Richtigkeit und Maßgeblichkeit der beigefügten Skizze bestätigt.",
+        "(4) Bei dieser Sachlage stellen auch die für den Wendehammer als Ausübungsbereich zusätzlich festgehaltenen Maße, sofern sie nur mit dem neu gebildeten Grundstück FlSt 12/5 in Einklang zu bringen wären, die Wahrscheinlichkeit nicht in Zweifel, dass die Vertragsparteien trotzdem den nördlichen Messpunkt als Begrenzungslinie ins Auge gefasst hatten und dieser - nicht aber die zusätzlichen Maßangaben - in erster Linie verbindlich sein sollte (siehe „Lageplan 2“). Zudem ist keineswegs eindeutig, ob das angeführte Längenmaß („20 m“) nur den Wendehammer selbst oder auch dessen Zufahrt umfasst.",
+        "(5) Dass ein auf dem Grundstück FlSt. 12 verbliebener Teil der Dienstbarkeit keinen Vorteil für das herrschende Grundstück mehr brächte (vgl. __norm174__ ), ist im Grundbuchverfahren nicht nachweisbar, geschweige denn offensichtlich.",
+        "Ob das dienende Grundstück aus anderen Gründen von der Belastung frei geworden ist, kann im Grundbuchverfahren anhand der vorhandenen Unterlagen nicht geprüft werden.",
+        "Auf schuldrechtliche Verpflichtungen der Eigentümer des herrschenden Grundstücks auf Mitwirkung an der Löschung nach Veräußerung des Wendehammers an die Gemeinde (siehe Ziffer VIII. der Urkunde vom 14.10.2009) kommt es nicht an.",
+        "c) Das Grundbuchamt hatte seinerzeit auch unter Verletzung gesetzlicher Vorschriften die Eintragung der Löschung vorgenommen ( __norm166__ ).",
+        "Es ist nämlich ohne Nachweis (vgl. __norm175__ ) und ohne die notwendige Anhörung der betroffenen Rechtsinhaber (BayObLG Rpfleger 1999, 485; Meikel/Streck GBO 10. Aufl. § 53 Rn. 81; Demharter § 1 Rn. 69, § 46 Rn. 19) davon ausgegangen, dass das Recht nur auf dem (abgeschriebenen) Flurstück 12/5 weiter lastet und das (Rest-) Grundstück Flst 12 außerhalb des Bereichs der Grunddienstbarkeit liegt.",
+        "3. Eine Kostenentscheidung ist nicht veranlasst.",
+        "Die Festsetzung des Geschäftswerts beruht auf § 79 Abs. 1 Satz 1 i. V. m. __norm176__ .",
+        "4. Die Voraussetzungen für die Zulassung der Rechtsbeschwerde ( __norm177__ ) liegen nicht vor."
+    ]
+}
