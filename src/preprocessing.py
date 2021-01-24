@@ -11,7 +11,7 @@ class TokenizationType(Enum):
     SPACE = 1
     BYTE_PAIR = 2
 
-def load_verdict(file: Path) -> Dict[List[str]]:
+def load_verdict(file: Path) -> Dict[str, List[str]]:
     with io.open(file, "r", encoding="utf-8") as f:
         verdict = json.load(f)
     result = {
@@ -45,9 +45,9 @@ def split(
         normalize: bool=True
     ) -> Iterable[List[str]]:
     if normalize:
-        return map(lambda sentence: re.split(r"[^\s]+", sentence.lower()), sentences)
+        return map(lambda sentence: re.split(r"[\s]+", sentence.lower()), sentences)
     else:
-        return map(lambda sentence: re.split(r"[^\s]+", sentence), sentences)
+        return map(lambda sentence: re.split(r"[\s]+", sentence), sentences)
 
 def replace_tokens(
         sentences: Iterable[List[str]]
@@ -56,10 +56,14 @@ def replace_tokens(
     # ATTENTION: we will be a bit more coarse here and replace a token with <num> if there is any number in them
     #  -> dates, numbers, etc. will all get the same token!
     def replace_op(token: str) -> str:
-        if any(c.isdigit() for c in token):
-            return "<num>"
-        elif token.startswith("__norm"):
+        if token.startswith("__norm"):
             return "<norm>"
+        elif any(c.isdigit() for c in token):
+            # We have to do one minor distinction here: if the number ends with a ")", we have to include it as otherwise some text will be lost
+            if token.endswith(")"):
+                return "<num>)"
+            else:
+                return "<num>"
         elif token == "...":
             return "<anon>"
         else:
@@ -77,17 +81,19 @@ def remove_special_characters(
     # - Remove all special characters
     
     def filter_tokens(tokens: List[str]) -> List[str]:
-        # Hacky solution to our problem: use a list with one entry for paren_counter -> call-by-reference
-        paren_counter = 0
+        # Hacky solution: We have to pass in a list to have a mutable counter, consistent between the different tokens
+        # Otherwise we would loose the paren_counter between the individual tokens and start at 0
+        paren_counter = [0]
         return list(filter(lambda token: paren_filter(token, paren_counter), tokens))
 
-    def paren_filter(token: str, paren_counter):
-        # TODO this might not work due to call-by-value
+    def paren_filter(token: str, paren_counter: List[int]):
+        # Hacky solution: We have to pass in a list to have a mutable counter, consistent between the different tokens
         if token.startswith("("):
-            paren_counter += 1
-        elif token.endswith(")") and paren_counter > 0:
-            paren_counter -= 1
-        return paren_counter == 0
+            paren_counter[0] += 1
+        if token.endswith(")") and paren_counter[0] > 0:
+            paren_counter[0] -= 1
+            return False
+        return paren_counter[0] == 0
 
     sentences = map(filter_tokens, sentences)
     sentences = map(lambda sentence: [re.sub(r"[^A-Za-zÄÜÖäüöß<>]+", "", token) for token in sentence], sentences)
@@ -98,24 +104,23 @@ def finalize(
     ) -> List[List[str]]:
 
     def token_filter(token: str, start: bool):
-        # TODO Can we assign to the global start value? Otherwise we need to use the call-by-reference trick with a list
-        if start:
-            start |= True
+        # Same hacky trick as above
+        if len(token) == 0:
+            start[0] = False
+            return False
+        elif start[0]:
+            start[0] = False
             # startswith as there are also 1a, etc. as enumeration tokens
             if token.startswith("<num>") or is_roman_enum(token) or is_alpha_enum(token):
                 return False
-        elif len(token)==0:
-            start |= True
-            return False
-        else:
-            start |= True
-            return True
+
+        start[0] = False
+        return True
         
     result = []
     for sentence in sentences:
-        # TODO Check for enumerations
-        start = True
-        sentence = list(filter(lambda token: token_filter(token, start), sentence[start:]))
+        start = [True]
+        sentence = list(filter(lambda token: token_filter(token, start), sentence))
         if len(sentence) > 0:
             result.append(sentence)
 
@@ -140,9 +145,9 @@ def is_alpha_enum(s: str) -> bool:
     #  1. it is at the beginning of a line (already checked)
     #  2.1 it only contains a single character
     #  2.2 it only contains equal characters (aa, bb, cc)
-    if len(s) <= 1:
-        return False
+    if len(s) <= 1 and s.isalpha():
+        return True
     char = s[0]
-    if all(c==char for c in s):
-        return False
-    return True
+    if all(c==char for c in s) and s.isalpha():
+        return True
+    return False
