@@ -3,6 +3,7 @@
 import io
 import json
 from pathlib import Path
+from collections import defaultdict
 import re
 from enum import Enum
 from typing import List, Dict, Iterable
@@ -10,6 +11,16 @@ from typing import List, Dict, Iterable
 class TokenizationType(Enum):
     SPACE = 1
     BYTE_PAIR = 2
+
+CHAR_SET = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 
+            'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+            'Ä', 'Ü', 'Ö', 'ä', 'ü', 'ö', 'ß', '<', '>'}
+
+empty = lambda: ""
+CHAR_MAP = defaultdict(empty)
+
+for c in CHAR_SET:
+    CHAR_MAP[ord(c)] = c
 
 def load_verdict(file: Path) -> Dict[str, List[str]]:
     with io.open(file, "r", encoding="utf-8") as f:
@@ -58,7 +69,7 @@ def replace_tokens(
     def replace_op(token: str) -> str:
         if token.startswith("__norm"):
             return "<norm>"
-        elif any(c.isdigit() for c in token):
+        elif not token[0].isalpha() and any(c.isdigit() for c in token):
             # We have to do one minor distinction here: if the number ends with a ")", we have to include it as otherwise some text will be lost
             if token.endswith(")"):
                 return "<num>)"
@@ -69,7 +80,8 @@ def replace_tokens(
         else:
             return token
 
-    return map(lambda sentence: [replace_op(token) for token in sentence], sentences)
+    # TODO list comprehension super costly -> replace_op costs a lot
+    return map(lambda sentence: [replace_op(token) for token in sentence if len(token) > 0], sentences)
 
 def remove_special_characters(
         sentences: Iterable[List[str]]
@@ -96,7 +108,7 @@ def remove_special_characters(
         return paren_counter[0] == 0
 
     sentences = map(filter_tokens, sentences)
-    sentences = map(lambda sentence: [re.sub(r"[^A-Za-zÄÜÖäüöß<>]+", "", token) for token in sentence], sentences)
+    sentences = map(lambda sentence: [token.translate(CHAR_MAP) for token in sentence], sentences)
     return sentences
 
 def finalize(
