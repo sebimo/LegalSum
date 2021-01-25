@@ -1,13 +1,19 @@
 # Contains all the preprocessing code + data loading
 # We want to test a more bare-metal version of this as well
 import io
+import os
 import json
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, Counter
+import pickle
 import re
 from enum import Enum
 from typing import List, Dict, Iterable
 
+from tqdm import tqdm
+
+# -----------------------------------------------
+# Some static variables used throughout this file
 class TokenizationType(Enum):
     SPACE = 1
     BYTE_PAIR = 2
@@ -16,19 +22,122 @@ CHAR_SET = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n'
             'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
             'Ä', 'Ü', 'Ö', 'ä', 'ü', 'ö', 'ß', '<', '>'}
 
-empty = lambda: ""
-CHAR_MAP = defaultdict(empty)
+CHAR_MAP = defaultdict(lambda: "")
 
 for c in CHAR_SET:
     CHAR_MAP[ord(c)] = c
 
-def load_verdict(file: Path) -> Dict[str, List[str]]:
+DATA_PATH = Path("data")/"dataset"
+# -----------------------------------------------
+
+
+class Tokenizer:
+
+    def __init__(self, path: Path, normalize: bool=True):
+        """ Initializes an empty tokenizer and will load a trained tokenizer, if the path exists """
+        self.path = path
+        self.normalize = normalize
+        self.tok2id = None
+        self.id2tok = None
+        if (self.path/"tokenizer.pkl").exists():
+            with io.open(self.path/"tokenizer.pkl", "rb") as f:
+                state = pickle.load(f)
+                self.tok2id = state["tok2id"]
+                self.id2tok = state["id2tok"]
+
+    def create_token_id_mapping(self, threshold: int=10, max_num_tokens: int=50000):
+        """ Creates the mapping between tokens proceduced by preprocessing to token ids used in training 
+            Params:
+                - threshold -- define how often a token needs to apprear to keep it in the corpus
+        """
+        frequency = Counter()
+        for file in tqdm(os.listdir(DATA_PATH)):
+            verdict = load_verdict(DATA_PATH/file, normalize=self.normalize)
+            for gp in verdict["guiding_principle"]:
+                frequency.update(gp)
+            for f in verdict["facts"]:
+                frequency.update(f)
+            for r in verdict["reasoning"]:
+                frequency.update(r)
+        
+        # We will use a defaultdict, s.t. we can just map any unseen token to id 0, which translates back to unknown
+        self.tok2id = defaultdict(int)
+        assert self.tok2id["<unk>"] == 0
+        self.tok2id["<unk>"] = 0
+        self.id2tok = {0: "<unk>"}
+        # We can differntiate here between choosing tokens which have a certain number of appearances;
+        # More applicable here would be to choose a max_num_tokens
+        # TODO do some token analysis, i.e. how often they occur and their count distribution etc.
+        if max_num_tokens > 0:
+            # -1 for <unk>, so we have a predefined token corpus size to be max_num_tokens
+            for i, tok in enumerate(frequency.most_common(max_num_tokens-1)):
+                self.tok2id[tok] = i+1
+                self.id2tok[i+1] = tok
+        else:
+            id_counter = 1
+            for tok, count in frequency.items():
+                if count >= threshold:
+                    self.tok2id[tok] = id_counter
+                    self.id2tok[id_counter] = tok
+                    id_counter += 1
+
+        
+        print("Total number of tokens:", len(frequency))
+        with io.open(self.path/"frequency.pkl", "wb") as f:
+            pickle.dump(frequency, f)
+        print("Total number of selected tokens:", len(self.tok2id))
+
+        state = {
+            "id2tok": self.id2tok,
+            "tok2id": self.tok2id
+        }
+        with io.open(self.path/"tokenizer.pkl", "wb") as f:
+            pickle.dump(state, f)
+
+    def tokenize_verdict(self, file: Path):
+        """ Loads the verdict from the path and translates its token to ids via the tokenizer mapping """
+        verdict = load_verdict(file, normalize=self.normalize)
+        for segment in verdict:
+            verdict[segment] = list(map(lambda sentence: list(map(lambda token: self.tok2id[token], sentence)), verdict[segment]))
+        return verdict
+
+
+class BPTokenizer(Tokenizer):
+
+    def __init__(self, path: Path, normalize: bool=True):
+        """ Initializes an empty tokenizer and will load a trained tokenizer, if the path exists """
+        self.path = path
+        self.normalize = normalize
+        self.save_path = self.path/"bp_tokenizer.pkl"
+        if (self.save_path).exists():
+            with io.open(self.save_path, "rb") as f:
+                state = pickle.load(f)
+
+        raise NotImplementedError
+
+    def create_token_id_mapping(self, threshold: int=10, max_num_tokens: int=50000):
+        """ Creates the mapping between tokens proceduced by preprocessing to token ids used in training 
+            Params:
+                - threshold -- define how often a token needs to apprear to keep it in the corpus
+        """
+        raise NotImplementedError
+
+    def create_token_bp_mapping(self):
+        """ Creates the byte-pair encoding mapping between tokens and their byte-pairs
+        """
+        raise NotImplementedError
+
+    def tokenize_verdict(self, file: Path):
+        """ Loads the verdict from the path and translates its token to ids via the tokenizer mapping """
+        raise NotImplementedError
+
+def load_verdict(file: Path, normalize: bool) -> Dict[str, List[str]]:
     with io.open(file, "r", encoding="utf-8") as f:
         verdict = json.load(f)
     result = {
-        "guiding_principle": process_segment(verdict["guiding_principle"][0] + verdict["guiding_principle"][1]),
-        "facts": process_segment(verdict["facts"]),
-        "reasoning": process_segment(verdict["reasoning"])
+        "guiding_principle": process_segment(verdict["guiding_principle"][0] + verdict["guiding_principle"][1], normalize=normalize),
+        "facts": process_segment(verdict["facts"], normalize=normalize),
+        "reasoning": process_segment(verdict["reasoning"], normalize=normalize)
     }
     return result
 
@@ -69,13 +178,14 @@ def replace_tokens(
     def replace_op(token: str) -> str:
         if token.startswith("__norm"):
             return "<norm>"
+        # TODO Minor Bug if there is a roman numeral combined with a number
         elif not token[0].isalpha() and any(c.isdigit() for c in token):
             # We have to do one minor distinction here: if the number ends with a ")", we have to include it as otherwise some text will be lost
             if token.endswith(")"):
                 return "<num>)"
             else:
                 return "<num>"
-        elif token == "...":
+        elif len(token) >= 2 and all(c=="." for c in token):
             return "<anon>"
         else:
             return token
