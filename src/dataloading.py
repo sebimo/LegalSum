@@ -95,6 +95,7 @@ def get_ext_target_indices(verdict: Path, db_path=None) -> Tuple(List[int]):
 
 def create_ext_target_db(db_path=None):
     """ Creates the database used for querying the gold labels for the extractive summarization task """
+    # TODO get library for rouge scores!
     raise NotImplementedError
 
 if __name__ == "__main__":
