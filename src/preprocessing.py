@@ -94,7 +94,7 @@ class Tokenizer:
         with io.open(self.path/"tokenizer.pkl", "wb") as f:
             pickle.dump(state, f)
 
-    def tokenize_verdict(self, file: Path):
+    def tokenize_verdict(self, file: Path) -> Dict[str, List[List[float]]]:
         """ Loads the verdict from the path and translates its token to ids via the tokenizer mapping """
         verdict = load_verdict(file, normalize=self.normalize)
         for segment in verdict:

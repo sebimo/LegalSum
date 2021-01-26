@@ -15,12 +15,12 @@ import pickle
 from pathlib import Path
 from itertools import chain
 from typing import List, Tuple
+import sqlite3
 
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import Dataset
-from torch.Tensor import LongTensor
 
 from preprocessing import load_verdict
 # We use import as to be able to switch out the Tokenizer later on
@@ -32,16 +32,17 @@ MODEL_PATH = Path("model")
 class ExtractiveDataset(Dataset):
     """ Dataset used for the extractive summarization training """
 
-    def __init__(self, verdict_paths: List[str], tokenizer: Tokenizer):
+    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer):
         self.verdicts = verdict_paths
         self.tokenizer = tokenizer
+        self.db_path = Path("..")/"data"/"databases"/"extractive.db"
 
     def __get_item__(self, index: int):
         verdict_path = self.verdicts[index]
         verdict = self.tokenizer.tokenize_verdict(verdict_path)
-        fact_ind, reas_ind = get_ext_target_indices(verdict_path)
+        fact_ind, reas_ind = get_ext_target_indices(verdict_path, self.db_path, self.tokenizer)
         # TODO define collate function that can deal with variable list lengths
-        x = list(map(lambda ind: LongTensor(ind), chain(verdict["facts"], verdict["reasoning"])))
+        x = list(map(lambda ind: torch.LongTensor(ind), chain(verdict["facts"], verdict["reasoning"])))
         reasoning_offset = len(verdict["facts"])
         y = [0]*(len(x))
         for i in fact_ind:
@@ -75,7 +76,7 @@ def fix_data_split(percentage: List[float]=[0.8,0.1,0.1]):
     with io.open(MODEL_PATH/"test_files.pkl", "wb") as f:
         pickle.dump(test_files, f)
 
-def get_ext_target_indices(verdict: Path, db_path=None) -> Tuple(List[int]):
+def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer) -> Tuple[List[int]]:
     """ Returns the indices for sentences in reasoning and facts, which have the highest overlap with a guiding principle sentence.
         -> We do not want to dynamically compute this, but only once and write it to a database with:
             1. verdict name (only the file name)
@@ -87,19 +88,54 @@ def get_ext_target_indices(verdict: Path, db_path=None) -> Tuple(List[int]):
     """
     file_name = verdict.name
     # We will use sqlite, as it is pretty easy to integrate + port to other machines
-    # TODO check that the database exists
-    #   TODO otherwise create it 
-    # TODO query db for info
-    raise NotImplementedError
-    return ([],[])
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    # Query db for info
+    try:
+        cursor.execute("select section, index from labels where name=:file ;", {"file": file_name})
+        res = cursor.fetchall()
+    except sqlite3.OperationalError:
+        # If this does not work, the table needs to be created + populated
+        create_ext_target_db(db_path, tok)
+    
+    # Re-run the query
+    cursor.execute("select section, index from labels where name=:file ;", {"file": file_name})
+    res = cursor.fetchall()
+    facts = []
+    reasoning = []
+    for row in res:
+        if row[0] == 0:
+            facts.append(row[1])
+        else:
+            reasoning.append(row[1])
 
-def create_ext_target_db(db_path=None):
+    conn.close()
+    return (facts, reasoning)
+
+def create_ext_target_db(db_path: Path, tok: Tokenizer):
     """ Creates the database used for querying the gold labels for the extractive summarization task """
     # TODO get library for rouge scores!
-    raise NotImplementedError
+    print("Creating gold labels for extractive summarization:")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("create table labels (name text, gid int, section int, index int)")
+    conn.commit()
+    for file in tqdm(os.listdir(DATA_PATH)):
+        verdict = tok.tokenize_verdict(DATA_PATH/file)
+        # TODO Calculate indices
+        indices = ([], [])
+        for gid, i in enumerate(indices[0]):
+            cursor.execute("insert into labels values (?, ?, ?, ?)", (file, gid, 0, i))
+        offset = len(indices[0])
+        for gid, i in enumerate(indices[1]):
+            cursor.execute("insert into labels values (?, ?, ?, ?)", (file, gid+offset, 1, i))
+        conn.commit()
+    
+    conn.close()
 
 if __name__ == "__main__":
     tok = Tokenizer(MODEL_PATH)
     #tok.create_token_id_mapping()
     #fix_data_split()
+    get_ext_target_indices(Path("src")/"testing"/"test_data"/"short.json", Path("data")/"database"/"test.db")
     
