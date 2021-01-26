@@ -2,7 +2,7 @@ import sqlite3
 from enum import Enum
 from datetime import datetime
 from pathlib import Path
-import numpy as np
+import numpy
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -13,7 +13,7 @@ class Type(Enum):
 
 class Logger:
 
-    def __init__(self, database: str="experiment.db"):
+    def __init__(self, database: Path):
         print("Starting experiment database:", database)
         self.conn = sqlite3.connect(database)
         self.c = self.conn.cursor()
@@ -137,5 +137,5 @@ if __name__ == "__main__":
         print("Unstarted experiment.")
     logger.start_experiment(parameters={"test_int": 1})
     for i in range(50):
-        logger.log_epoch({"acc": 50+i*0.5 + np.random.random()*10})
+        logger.log_epoch({"acc": 50+i*0.5 + (numpy.random.random() * 10)})
     print(logger.exp_info())
