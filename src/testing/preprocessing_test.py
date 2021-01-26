@@ -1,9 +1,12 @@
 import pytest
+import io
 from pathlib import Path
+from collections import defaultdict
+import pickle
 
-from ..preprocessing import is_roman_enum, is_alpha_enum, remove_special_characters, finalize, replace_tokens, split, load_verdict, process_segment
+from ..preprocessing import is_roman_enum, is_alpha_enum, remove_special_characters, finalize, replace_tokens, split, load_verdict, process_segment, Tokenizer
 
-class TestTokenization:
+class TestPreprocessing:
 
     def setup(self):
         pass
@@ -109,7 +112,7 @@ class TestTokenization:
         res = [["Lass", "uns", "ein", "paar", "Daten:", "<num>"]]
         assert list(replace_tokens(t)) == res
         t = [["Lass", "uns", "..", "ein", "paar", "Daten:", "12.3.2020"]]
-        res = [["Lass", "uns", "..", "ein", "paar", "Daten:", "<num>"]]
+        res = [["Lass", "uns", "<anon>", "ein", "paar", "Daten:", "<num>"]]
         assert list(replace_tokens(t)) == res
 
     def test_split(self):
@@ -164,7 +167,7 @@ class TestTokenization:
         assert list(process_segment(t)) == res
 
     def test_integration(self):
-        t = load_verdict(Path("src")/"testing"/"test_data"/"short.json")
+        t = load_verdict(Path("src")/"testing"/"test_data"/"short.json", normalize=True)
         res = {
             "guiding_principle": [
                     ["wird", "eine", "grunddienstbarkeit", "nach", "teilung", "des", "dienenden", "grundstücks", "an", "einem", "teil", "gelöscht"],
@@ -180,3 +183,42 @@ class TestTokenization:
         }
         assert t == res
 
+
+class TestTokenization:
+
+    def setup(self):
+        with io.open(Path("src")/"testing"/"test_data"/"tokenizer.pkl", "wb+") as f:
+            tok2id = defaultdict(int)
+            tok2id["<num>"] = 1
+            tok2id["ist"] = 2
+            tok2id["grundstücks"] = 3
+            id2tok = {
+                0: "<unk>",
+                1: "<num>",
+                2: "ist",
+                3: "grundstücks"
+            }
+            state = {
+                "tok2id": tok2id,
+                "id2tok": id2tok
+            }
+            pickle.dump(state, f)
+
+    def test_tokenizer(self):
+        self.setup()
+        tok = Tokenizer(Path("src")/"testing"/"test_data", normalize=True)
+        t = tok.tokenize_verdict(Path("src")/"testing"/"test_data"/"short.json")
+        res = {
+            "guiding_principle": [
+                    [0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                ],
+            "facts": [
+                    [0, 0, 2, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 3, 2, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                ],
+            "reasoning": [[0, 0, 0, 0, 0]]
+        }
+        assert t == res
