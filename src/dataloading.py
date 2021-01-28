@@ -78,7 +78,7 @@ def fix_data_split(percentage: List[float]=[0.8,0.1,0.1]):
     with io.open(MODEL_PATH/"test_files.pkl", "wb") as f:
         pickle.dump(test_files, f)
 
-def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer) -> Tuple[List[int]]:
+def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer, create_missing_db: bool=False) -> Tuple[List[int]]:
     """ Returns the indices for sentences in reasoning and facts, which have the highest overlap with a guiding principle sentence.
         -> We do not want to dynamically compute this, but only once and write it to a database with:
             1. verdict name (only the file name)
@@ -99,7 +99,8 @@ def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer) -> Tupl
         res = cursor.fetchall()
     except sqlite3.OperationalError:
         # If this does not work, the table needs to be created + populated
-        create_ext_target_db(db_path, tok)
+        if create_missing_db:
+            create_ext_target_db(db_path, tok)
     
     # Re-run the query
     cursor.execute("select section, ind from labels where name=:file and tokenizer=:tok ;", {"file": file_name, "tok": tok_type})
