@@ -127,11 +127,20 @@ class TestPreprocessing:
         assert list(split(t)) == res
         # Multiple sentences
         t = ["Hallo Welt,\n\t \vdie", "Das ist Satz 2."]
-        res = [["hallo", "welt,", "die"], ["das", "ist", "satz", "2."]]
+        res = [["hallo", "welt,", "die"], ["das", "ist", "satz", "2"]]
         assert list(split(t)) == res
         t = ["Hallo Welt,\n\t \vdie", "Das ist Satz 2."]
-        res = [["Hallo", "Welt,", "die"], ["Das", "ist", "Satz", "2."]]
+        res = [["Hallo", "Welt,", "die"], ["Das", "ist", "Satz", "2"]]
         assert list(split(t, normalize=False)) == res
+        t = ["I.Die Revision hat Erfolg."]
+        res = [["i", "die", "revision", "hat", "erfolg"]]
+        assert list(split(t)) == res
+        t = ["Herr ... hat nichts getan."]
+        res = [["herr", "...", "hat", "nichts", "getan"]]
+        assert list(split(t)) == res
+        t = ["Herr .... hat nichts getan."]
+        res = [["herr", "....", "hat", "nichts", "getan"]]
+        assert list(split(t)) == res
 
     def test_segment(self):
         t = [
@@ -152,7 +161,7 @@ class TestPreprocessing:
         ]
         res = [
             ["Die", "Beteiligte", "ist", "als", "Eigentümerin", "vom", "Grundbesitz", "im", "Grundbuch", "eingetragen"],
-            ["Ende", "<num>", "verkaufte", "sie", "hiervon", "Teilflächen", "welche", "nach", "Messungsanerkennung", "und", "Auflassung", "vom", "<num>", "nun", "das", "Grundstück", "FlSt", "<num>", "bilden"],
+            ["Ende", "<num>", "verkaufte", "sie", "hiervon", "Teilflächen", "welche", "nach", "Messungsanerkennung", "und", "Auflassung", "vom", "<num>", "<num>", "<num>", "nun", "das", "Grundstück", "FlSt", "<num>", "bilden"],
             ["Für", "die", "jeweiligen", "Eigentümer", "des", "neu", "geschaffenen", "Grundstücks", "wurde", "eine", "Grunddienstbarkeit", "an", "dem", "Grundstück", "FlSt", "<num>", "der", "Beteiligten", "mit", "folgendem", "Inhalt", "bestellt"],
             ["Der", "jeweilige", "Eigentümer", "des", "herrschenden", "Grundstücks", "ist", "berechtigt", "neben", "dem", "Eigentümer", "des", "dienenden", "Grundstücks", "auf", "dem", "dienenden", "Grundstück", "zu", "gehen", "und", "mit", "Fahrzeugen", "aller", "Art", "zu", "fahren"]
         ]
@@ -175,7 +184,7 @@ class TestPreprocessing:
                 ],
             "facts": [
                     ["die", "beteiligte", "ist", "als", "eigentümerin", "vom", "grundbesitz", "im", "grundbuch", "eingetragen"],
-                    ["ende", "<num>", "verkaufte", "sie", "hiervon", "teilflächen", "welche", "nach", "messungsanerkennung", "und", "auflassung", "vom", "<num>", "nun", "das", "grundstück", "flst", "<num>", "bilden"],
+                    ["ende", "<num>", "verkaufte", "sie", "hiervon", "teilflächen", "welche", "nach", "messungsanerkennung", "und", "auflassung", "vom", "<num>", "<num>", "<num>", "nun", "das", "grundstück", "flst", "<num>", "bilden"],
                     ["für", "die", "jeweiligen", "eigentümer", "des", "neu", "geschaffenen", "grundstücks", "wurde", "eine", "grunddienstbarkeit", "an", "dem", "grundstück", "flst", "<num>", "der", "beteiligten", "mit", "folgendem", "inhalt", "bestellt"],
                     ["der", "jeweilige", "eigentümer", "des", "herrschenden", "grundstücks", "ist", "berechtigt", "neben", "dem", "eigentümer", "des", "dienenden", "grundstücks", "auf", "dem", "dienenden", "grundstück", "zu", "gehen", "und", "mit", "fahrzeugen", "aller", "art", "zu", "fahren"]
                 ],
@@ -215,7 +224,7 @@ class TestTokenization:
                 ],
             "facts": [
                     [0, 0, 2, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0],
+                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0],
                     [0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 3, 2, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
                 ],
