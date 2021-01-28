@@ -101,6 +101,14 @@ class Tokenizer:
             verdict[segment] = list(map(lambda sentence: list(map(lambda token: self.tok2id[token], sentence)), verdict[segment]))
         return verdict
 
+    def tokenize_verdict_without_id(self, file: Path) -> Dict[str, List[List[str]]]:
+        """ Same as tokenize_verdict, but does not translate a token to its id """
+        verdict = load_verdict(file, normalize=self.normalize)
+        return verdict
+
+    def get_type(self):
+        return TokenizationType.SPACE
+
 
 class BPTokenizer(Tokenizer):
 
@@ -131,7 +139,10 @@ class BPTokenizer(Tokenizer):
         """ Loads the verdict from the path and translates its token to ids via the tokenizer mapping """
         raise NotImplementedError
 
-def load_verdict(file: Path, normalize: bool) -> Dict[str, List[str]]:
+    def get_type(self):
+        return TokenizationType.BYTE_PAIR
+
+def load_verdict(file: Path, normalize: bool) -> Dict[str, List[List[str]]]:
     with io.open(file, "r", encoding="utf-8") as f:
         verdict = json.load(f)
     result = {
@@ -164,10 +175,13 @@ def split(
         sentences: List[str],
         normalize: bool=True
     ) -> Iterable[List[str]]:
+    # We need to split on a dot after some characters as well, as there some corner cases coming from errors in the data i.e. "I.Die" instead of "I. Die"
+    # This might introduce inconsistencies and an unecessarily increased token count.
+    # The filter is necessary, as we have multiple matches and those introduce "" and None
     if normalize:
-        return map(lambda sentence: re.split(r"[\s]+", sentence.lower()), sentences)
+        return map(lambda sentence: list(filter(lambda tok: tok is not None and len(tok) > 0, re.split(r"[\s]+|([a-züöä0-9]+)\.", sentence.lower()))), sentences)
     else:
-        return map(lambda sentence: re.split(r"[\s]+", sentence), sentences)
+        return map(lambda sentence: list(filter(lambda tok: tok is not None and len(tok) > 0, re.split(r"[\s]+|([A-Za-zÜüÖöÄä0-9]+)\.", sentence))), sentences)
 
 def replace_tokens(
         sentences: Iterable[List[str]]
