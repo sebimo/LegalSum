@@ -22,9 +22,11 @@ from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import Dataset
 
+from rouge import Rouge # https://github.com/pltrdy/rouge
+
 from preprocessing import load_verdict
 # We use import as to be able to switch out the Tokenizer later on
-from preprocessing import Tokenizer as Tokenizer
+from preprocessing import Tokenizer as Tokenizer, TokenizationType
 
 DATA_PATH = Path("data")/"dataset"
 MODEL_PATH = Path("model")
@@ -35,7 +37,7 @@ class ExtractiveDataset(Dataset):
     def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer):
         self.verdicts = verdict_paths
         self.tokenizer = tokenizer
-        self.db_path = Path("..")/"data"/"databases"/"extractive.db"
+        self.db_path = Path("data")/"databases"/"extractive.db"
 
     def __get_item__(self, index: int):
         verdict_path = self.verdicts[index]
@@ -90,16 +92,17 @@ def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer) -> Tupl
     # We will use sqlite, as it is pretty easy to integrate + port to other machines
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+    tok_type = 1 if tok.get_type() == TokenizationType.SPACE else 2
     # Query db for info
     try:
-        cursor.execute("select section, index from labels where name=:file ;", {"file": file_name})
+        cursor.execute("select section, ind from labels where name=:file and tokenizer=:tok ;", {"file": file_name, "tok": tok_type})
         res = cursor.fetchall()
     except sqlite3.OperationalError:
         # If this does not work, the table needs to be created + populated
         create_ext_target_db(db_path, tok)
     
     # Re-run the query
-    cursor.execute("select section, index from labels where name=:file ;", {"file": file_name})
+    cursor.execute("select section, ind from labels where name=:file and tokenizer=:tok ;", {"file": file_name, "tok": tok_type})
     res = cursor.fetchall()
     facts = []
     reasoning = []
@@ -112,23 +115,83 @@ def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer) -> Tupl
     conn.close()
     return (facts, reasoning)
 
-def create_ext_target_db(db_path: Path, tok: Tokenizer):
+def create_ext_target_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_PATH):
     """ Creates the database used for querying the gold labels for the extractive summarization task """
-    # TODO get library for rouge scores!
     print("Creating gold labels for extractive summarization:")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute("create table labels (name text, gid int, section int, index int)")
-    conn.commit()
-    for file in tqdm(os.listdir(DATA_PATH)):
-        verdict = tok.tokenize_verdict(DATA_PATH/file)
-        # TODO Calculate indices
+    try:
+        cursor.execute("create table labels (name text not null, tokenizer integer not null, gid integer not null, section integer not null, ind integer not null, primary key (name,tokenizer,gid));")
+        conn.commit()
+    except sqlite3.OperationalError:
+        print("Resuming from previously build table")
+    # We will use a higher rouge score for getting the gold results; if there is no result, we have to come back to the lower rouge scores
+    rouge = Rouge(metrics=["rouge-1", "rouge-2"])
+
+    for file in tqdm(os.listdir(data_folder), desc="Generating gold labels"):
+        verdict = tok.tokenize_verdict_without_id(data_folder/file)
+        tok_type = 1 if tok.get_type() == TokenizationType.SPACE else 2
+
+        # Only execute based on num of gps already in db
+
+        # It is necessary to rejoin the tokens into one string
+        for segment in verdict:
+            verdict[segment] = list(map(lambda sentence: " ".join(sentence), verdict[segment]))
+
         indices = ([], [])
-        for gid, i in enumerate(indices[0]):
-            cursor.execute("insert into labels values (?, ?, ?, ?)", (file, gid, 0, i))
-        offset = len(indices[0])
-        for gid, i in enumerate(indices[1]):
-            cursor.execute("insert into labels values (?, ?, ?, ?)", (file, gid+offset, 1, i))
+        # Calculate indices for each guiding principle
+        for num_gp, gp in enumerate(verdict["guiding_principle"]):
+            #cursor.execute("select * from labels ")
+            max_rouge = {
+                "rouge-1": {
+                    "segment": -1,
+                    "index": -1,
+                    "score": 0.0
+                },
+                "rouge-2": {
+                    "segment": -1,
+                    "index": -1,
+                    "score": 0.0
+                }
+            }
+            # Run over all sentences in facts
+            for i, s in enumerate(verdict["facts"]):
+                score = rouge.get_scores(gp, s)
+                if score[0]["rouge-2"]["f"] > max_rouge["rouge-2"]["score"]:
+                    max_rouge["rouge-2"]["segment"] = 0
+                    max_rouge["rouge-2"]["index"] = i
+                    max_rouge["rouge-2"]["score"] = score[0]["rouge-2"]["f"]
+                if score[0]["rouge-1"]["f"] > max_rouge["rouge-1"]["score"]:
+                    max_rouge["rouge-1"]["segment"] = 0
+                    max_rouge["rouge-1"]["index"] = i
+                    max_rouge["rouge-1"]["score"] = score[0]["rouge-2"]["f"]
+            # Run over all sentences in reasoning
+            for i, s in enumerate(verdict["reasoning"]):
+                score = rouge.get_scores(gp, s)
+                if score[0]["rouge-2"]["f"] > max_rouge["rouge-2"]["score"]:
+                    max_rouge["rouge-2"]["segment"] = 1
+                    max_rouge["rouge-2"]["index"] = i
+                    max_rouge["rouge-2"]["score"] = score[0]["rouge-2"]["f"]
+                if score[0]["rouge-1"]["f"] > max_rouge["rouge-1"]["score"]:
+                    max_rouge["rouge-1"]["segment"] = 1
+                    max_rouge["rouge-1"]["index"] = i
+                    max_rouge["rouge-1"]["score"] = score[0]["rouge-2"]["f"]
+            
+            # If we have a maximum rouge-2 score, we will take that indice; otherwise take the rouge-1 sentence
+            if max_rouge["rouge-2"]["segment"] != -1:
+                indices[max_rouge["rouge-2"]["segment"]].append((num_gp, max_rouge["rouge-2"]["index"]))
+            elif max_rouge["rouge-1"]["segment"] != -1:
+                indices[max_rouge["rouge-1"]["segment"]].append((num_gp, max_rouge["rouge-1"]["index"]))
+            else:
+                with io.open("logging/missing_ext_goldlabel.txt", "a+") as f:
+                    f.write(file + " : " + str(num_gp) + "\n")
+
+        assert all(i > -1 for _, i in indices[0]) and all(i > -1 for _, i in indices[1])
+
+        for gid, i in indices[0]:
+            cursor.execute("insert into labels values (?, ?, ?, ?, ?);", (file, tok_type, gid, 0, i))
+        for gid, i in indices[1]:
+            cursor.execute("insert into labels values (?, ?, ?, ?, ?);", (file, tok_type, gid, 1, i))
         conn.commit()
     
     conn.close()
@@ -137,5 +200,5 @@ if __name__ == "__main__":
     tok = Tokenizer(MODEL_PATH)
     #tok.create_token_id_mapping()
     #fix_data_split()
-    get_ext_target_indices(Path("src")/"testing"/"test_data"/"short.json", Path("data")/"database"/"test.db")
+    create_ext_target_db(Path("data")/"databases"/"extractive.db", tok)
     
