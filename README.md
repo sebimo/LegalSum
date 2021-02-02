@@ -3,8 +3,8 @@ Codebase for the summarization of German court rulings. This includes:
 
 * data scraping & preprocessing pipeline
 * GUI for manual data validation
-* custom data loading & preprocessing (TODO)
-* model implementation & training routines (TODO)
+* custom data loading & preprocessing
+* model implementation & training routines (in progress)
 * evaluation routines
 
 # Dataset
