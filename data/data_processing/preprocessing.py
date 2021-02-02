@@ -13,6 +13,8 @@ class Transformer:
 
     def extract(self, raw_text: List[str]) -> List[str]:
         doc = self.nlp.pipe(raw_text)
+        # TODO This code does not return a List[str], but we need to check where it is used first
+        raise NotImplementedError
         return doc
 
 if __name__ == "__main__":
