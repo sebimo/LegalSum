@@ -1,6 +1,6 @@
 import pytest
 
-from ..evaluation import evaluate, set_metrics
+from ..evaluation import evaluate, evaluate_indices, set_metrics
 
 class TestRouge:
 
@@ -32,3 +32,16 @@ class TestRouge:
         assert len(res) == 1
         assert "rouge-1" in res
         assert "error" not in res
+
+    def test_evaluate_indices(self):
+        set_metrics(["rouge-1", "rouge-2", "rouge-l"])
+        h = [[1, 2], [1, 3, 4, 5]]
+        t = [[1, 3], [1, 3, 4, 5]]
+        res = evaluate_indices(h, t)
+        assert res[0]["rouge-1"]["f"] > 0.0
+        assert res[0]["rouge-2"]["f"] == 0.0
+        assert res[0]["rouge-l"]["f"] > 0.0
+
+        assert res[1]["rouge-1"]["f"] > 0.0
+        assert res[1]["rouge-2"]["f"] > 0.0
+        assert res[1]["rouge-l"]["f"] > 0.0
