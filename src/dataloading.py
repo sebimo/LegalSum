@@ -6,7 +6,7 @@
 #   - load json verdict, extract relevant text portions, tokenize & preprocess text
 #      * space-based tokenization
 #      * byte-pair tokenization
-#  (- fetch relevant norm texts for a verdict, tokenize & preprocess text)
+#   - fetch relevant norm texts for a verdict, tokenize & preprocess text
 #   - dataloader that can be used in the model training
 import os
 import io
@@ -14,7 +14,7 @@ from collections import Counter
 import pickle
 from pathlib import Path
 from itertools import chain
-from typing import List, Tuple
+from typing import List, Tuple, Set, Callable
 import sqlite3
 
 from tqdm import tqdm
@@ -24,37 +24,74 @@ from torch.utils.data import Dataset
 
 from rouge import Rouge # https://github.com/pltrdy/rouge
 
-from preprocessing import load_verdict
+from .preprocessing import load_verdict, TokenizationType
 # We use import as to be able to switch out the Tokenizer later on
-from preprocessing import Tokenizer as Tokenizer, TokenizationType
+from .preprocessing import Tokenizer as Tokenizer
 
 DATA_PATH = Path("data")/"dataset"
 MODEL_PATH = Path("model")
+NORM_DB_PATH = Path("data")/"databases"/"norms.db"
 
 class ExtractiveDataset(Dataset):
     """ Dataset used for the extractive summarization training """
 
-    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer):
+    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer, transform: Callable[[List[int]],List[int]]=lambda x: x):
         self.verdicts = verdict_paths
         self.tokenizer = tokenizer
         self.db_path = Path("data")/"databases"/"extractive.db"
+        # It is possible to use the transform function to cap the number of indices per sentence etc.
+        self.transform = transform
 
-    def __get_item__(self, index: int):
+    def __getitem__(self, index: int):
         verdict_path = self.verdicts[index]
+        print(verdict_path)
         verdict = self.tokenizer.tokenize_verdict(verdict_path)
         fact_ind, reas_ind = get_ext_target_indices(verdict_path, self.db_path, self.tokenizer)
-        # TODO define collate function that can deal with variable list lengths
-        x = list(map(lambda ind: torch.LongTensor(ind), chain(verdict["facts"], verdict["reasoning"])))
+        
+        # Define collate function that can deal with variable list lengths
+        x = list(map(lambda ind: torch.LongTensor(self.transform(ind)), chain(verdict["facts"], verdict["reasoning"])))
+
+        # We have to create our targets for the extractive summarization over the facts and reasoning, i.e. we have to combine both their targets
+        # into one long tensor
         reasoning_offset = len(verdict["facts"])
-        y = [0]*(len(x))
+        y = torch.Tensor([0.0]*(len(x)))
         for i in fact_ind:
-            y[i] = 1
+            y[i] = 1.0
         for i in reas_ind:
-            y[i+reasoning_offset] = 1
+            y[i+reasoning_offset] = 1.0
+
         return x, y
 
     def __len__(self):
         return len(self.verdicts)
+
+def collate(batch: List[Tuple[List[torch.Tensor], torch.Tensor]], device: torch.device) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """ Will transform the given sentence list (each entry in the first list represents a document; this document contains various number of sentences), to 
+        one sentence tensor with all sentences being padded to the same length.
+        Returns:
+            List[Tuple[
+                sentence index tensor = padded tensor version of the initial sentence list,
+                y = original target for each sentence,
+                lenghts = original lenghts of all sentences before padding,
+                mask for the padded version of the sentence indices
+            ]]
+    """
+    # We will introduce this collate function, if we want to deal with batch samples of varying sizes
+    # Taken and adapted from @pinocchio https://discuss.pytorch.org/t/how-to-create-a-dataloader-with-variable-size-input/8278/13
+    
+    targets = map(lambda doc: doc[1].to(device), batch)
+
+    # We can have multiple documents per batch, each having multiple sentences
+    lengths = map(lambda doc: torch.tensor([sent.shape[0] for sent in doc[0]]).to(device), batch)
+
+    batch = map(lambda doc: torch.nn.utils.rnn.pad_sequence(doc[0], batch_first=True).to(device), batch)
+    
+    res = []
+    for x, t, l in zip(batch, targets, lengths):
+        mask = (x!=0).to(device)
+        res.append((x,t,l,mask))
+    return res
+
 
 # TODO fix train, val, test split
 def fix_data_split(percentage: List[float]=[0.8,0.1,0.1]):
@@ -77,6 +114,21 @@ def fix_data_split(percentage: List[float]=[0.8,0.1,0.1]):
         pickle.dump(val_files, f)
     with io.open(MODEL_PATH/"test_files.pkl", "wb") as f:
         pickle.dump(test_files, f)
+
+def get_train_files():
+    """ Returns all the files previously selected to be used for training. """
+    with io.open(MODEL_PATH/"train_files.pkl", "rb") as f:
+        return pickle.load(f)
+
+def get_val_files():
+    """ Returns all the files previously selected to be used for validation. """
+    with io.open(MODEL_PATH/"val_files.pkl", "rb") as f:
+        return pickle.load(f)
+
+def get_test_files():
+    """ Returns all the files previously selected to be used for testing. """
+    with io.open(MODEL_PATH/"test_files.pkl", "rb") as f:
+        return pickle.load(f)
 
 def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer, create_missing_db: bool=False) -> Tuple[List[int]]:
     """ Returns the indices for sentences in reasoning and facts, which have the highest overlap with a guiding principle sentence.
@@ -196,6 +248,28 @@ def create_ext_target_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_P
         conn.commit()
     
     conn.close()
+
+def get_norm_sentences(norm: str, paragraph: str, db_path: Path=NORM_DB_PATH) -> List[str]:
+    """ Query the norms.db to get the paragraph and sentence of a referenced norm 
+        ATTENTION: It is still necessary to use the Tokenizer on the resulting sentences
+        Returns:
+            - List[str] = List of sentences making up the norm and paragraph
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("select sentence, content from norms where name=:n and paragraph=:p", {"n": norm, "p": paragraph})
+    sentences = list(map(lambda t: t[1], cursor.fetchall()))
+    return sentences
+
+def get_norms(db_path: Path=NORM_DB_PATH) -> Set[str]:
+    """ Creates a set containing all norms from the database. 
+        This can be used to faster check, whether a norm is contained in the database.
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("select distinct name from norms") 
+    norms = set(map(lambda t: t[0], cursor.fetchall()))
+    return norms
 
 if __name__ == "__main__":
     tok = Tokenizer(MODEL_PATH)
