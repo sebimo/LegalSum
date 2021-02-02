@@ -47,7 +47,6 @@ class HierarchicalEncoder(nn.Module):
         X = self.__get_sentence_attention__(X)
 
         X = self._activation(X)
-        X = self._classification(X)
         return X
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
@@ -133,8 +132,8 @@ class RNNEncoder(nn.Module):
 
         self._classification = nn.Sequential(
             nn.Linear(self.embedding_size, 1),
+            nn.Sigmoid()
         )
-        self.sig = nn.Sigmoid()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         X = self._embedding(X)
@@ -155,9 +154,8 @@ class RNNEncoder(nn.Module):
         X = self.reduction2(X)
         X = self._activation(X)
 
-        X = self._classification(X)
         return X
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
-        y = self.sig(E)
+        y = self._classification(E)
         return y
