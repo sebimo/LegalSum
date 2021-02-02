@@ -1,4 +1,7 @@
-from typing import List, Dict
+from typing import List, Dict, Tuple
+
+import numpy as np
+from sklearn.metrics import confusion_matrix
 
 from rouge import Rouge # https://github.com/pltrdy/rouge
 
@@ -38,3 +41,43 @@ def set_metrics(metrics: List[str]=["rouge-1", "rouge-2", "rouge-l"]):
     except ValueError:
         print("Used unknown metrics; reapplying old ones")
         rouge = Rouge(metrics=old_metrics)
+
+def calculate_confusion_matrix(y_true: np.array, y_pred: np.array) -> Dict[str, int]:
+    """ This is just a wrapper around the sklearn confusion matrix, transformed to a dict to have a unified statistics format """
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    res = {}
+    res["TN"] = tn
+    res["FP"] = fp
+    res["FN"] = fn
+    res["TP"] = tp
+    return res
+
+def merge(epoch_stats: Dict[str, Tuple[float, int]], stats: Dict[str, float]) -> Dict[str, Tuple[float, int]]:
+    """ Combines the local batch stats with the epoch stats """
+    result = {}
+    if len(epoch_stats) == 0:
+        for k in stats:
+            result[k] = (stats[k], 1)
+    else:
+        for k in stats:
+            # For direct counter variables, we do not want to increase the count
+            if k in ["TP", "TN", "FP", "FN"]:
+                inc = 0
+            else:
+                inc = 1
+
+            result[k] = (stats[k]+epoch_stats[k][0], epoch_stats[k][1]+inc)
+    return result
+
+def finalize_statistic(epoch_stats: Dict[str, Tuple[float, int]]) -> Dict[str, float]:
+    result = {}
+    for k in epoch_stats:
+        value, count = epoch_stats[k]
+        # Generally, we are just going for the average value
+        result[k] = value/count
+    if "TP" in result and "FP" in result and "TN" in result and "FN" in result and "Recall" not in result and "Precision" not in result and "F1" not in result:
+        result["Recall"] = result["TP"]/(result["TP"]+result["FN"])
+        result["Precision"] = result["TP"]/(result["TP"]+result["FP"])
+        result["F1"] = 2 * (result["Recall"]*result["Precision"])/(result["Recall"] + result["Precision"])
+    return result
+

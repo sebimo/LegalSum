@@ -1,6 +1,9 @@
 import pytest
 
-from ..evaluation import evaluate, evaluate_indices, set_metrics
+import numpy as np
+import sklearn.metrics as metrics
+
+from ..evaluation import evaluate, evaluate_indices, set_metrics, merge, finalize_statistic, calculate_confusion_matrix
 
 class TestRouge:
 
@@ -45,3 +48,88 @@ class TestRouge:
         assert res[1]["rouge-1"]["f"] > 0.0
         assert res[1]["rouge-2"]["f"] > 0.0
         assert res[1]["rouge-l"]["f"] > 0.0
+
+    def test_confusion_matrix(self):
+        t = np.array([1, 0, 0, 1, 1, 0, 0])
+        p = np.array([1, 1, 0, 0, 1, 0, 0])
+        res = {
+            "TP": 2,
+            "FP": 1,
+            "FN": 1,
+            "TN": 3
+        }
+        y = calculate_confusion_matrix(t, p)
+        assert len(res) == len(y)
+        for k in res:
+            assert res[k] == y[k]
+
+    def test_merge(self):
+        e = {}
+        b = {
+            "TP": 10,
+            "FP": 20,
+            "TN": 30,
+            "FN": 2,
+            "Test": 0.5
+        }
+        res = {
+            "TP": (10, 1),
+            "FP": (20, 1),
+            "TN": (30, 1),
+            "FN": (2, 1),
+            "Test": (0.5, 1)
+        }
+        y = merge(e, b)
+        for k in res:
+            assert res[k] == y[k]
+        b = {
+            "TP": 10,
+            "FP": 20,
+            "TN": 30,
+            "FN": 2,
+            "Test": 0.6
+        }
+        y = merge(res, b)
+        res = {
+            "TP": (20, 1),
+            "FP": (40, 1),
+            "TN": (60, 1),
+            "FN": (4, 1),
+            "Test": (1.1, 2)
+        }
+        for k in res:
+            assert res[k] == y[k]
+        
+    def test_finalize_statistic(self):
+        e = {
+            "TP": (20, 1),
+            "FP": (40, 1),
+            "TN": (60, 1),
+            "FN": (4, 1),
+            "Test": (1.1, 2)
+        }
+        res = {
+            "TP": 20,
+            "FP": 40,
+            "TN": 60,
+            "FN": 4,
+            "Test": 0.55,
+            "Recall": 5/6,
+            "Precision": 1/3,
+            "F1": 10/21
+        }
+        y = finalize_statistic(e)
+        for k in res:
+            assert res[k] == y[k]
+
+        for _ in range(10):
+            # The upperbound (2 in this case) is exclusive
+            t = np.random.randint(0,2,100)
+            p = np.random.randint(0,2,100)
+            d = calculate_confusion_matrix(t, p)
+            stats = merge({}, d)
+            stats = finalize_statistic(stats)
+            assert stats["F1"] == metrics.f1_score(t, p)
+            assert stats["Precision"] == metrics.precision_score(t, p)
+            assert stats["Recall"] == metrics.recall_score(t, p)
+
