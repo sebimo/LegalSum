@@ -63,9 +63,38 @@ class TestHierarchicalEncoder:
 
     def test_model(self):
         batch = self.setup_indice_batch()
-        pred = self.model(batch)
+        pred = self.model(batch, torch.ones(batch.shape[:-1], dtype=torch.bool))
         # We just want to check, if there is any error in the model (dimensions, ...)
-        assert True == True
+        assert True
+
+
+class TestRNNcuda:
+
+    def setup(self, max_sent=200, max_token=100, embedding_size=200, n_tokens=500):
+        self.max_sent = max_sent
+        self.max_token = max_token
+        self.embedding_size = embedding_size
+        self.n_tokens = n_tokens
+        self.model = HierarchicalEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens).cuda()
+
+    def setup_batch(self):
+        self.setup()
+        batch = torch.rand((self.max_sent, self.max_token, self.embedding_size))
+        return batch
+
+    def setup_indice_batch(self):
+        self.setup(max_sent=10, max_token=10, embedding_size=200, n_tokens=100)
+        batch = torch.zeros((self.max_sent, self.max_token), dtype=torch.long)
+        for s in range(self.max_sent):
+            for t in range(self.max_token):
+                batch[s][t] = torch.randint(low=0, high=self.n_tokens, size=(1,))
+
+        return batch
+
+    def test_cuda(self):
+        batch = self.setup_indice_batch().cuda()
+        pred = self.model(batch, torch.ones(batch.shape[:-1], dtype=torch.bool).cuda())
+        assert True
 
 
 class TestRNNEncoder:
@@ -93,6 +122,35 @@ class TestRNNEncoder:
 
     def test_forward(self):
         batch = self.setup_indice_batch()
-        pred = self.model(batch)
+        pred = self.model(batch, torch.ones(batch.shape[:-1], dtype=torch.bool))
         # Just checks for any bugs in dimensions etc.
+        assert True
+
+
+class TestHIERcuda:
+
+    def setup(self, max_sent=200, max_token=100, embedding_size=200, n_tokens=500):
+        self.max_sent = max_sent
+        self.max_token = max_token
+        self.embedding_size = embedding_size
+        self.n_tokens = n_tokens
+        self.model = RNNEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens, layers=1).cuda()
+
+    def setup_batch(self):
+        self.setup()
+        batch = torch.rand((self.max_sent, self.max_token, self.embedding_size))
+        return batch
+
+    def setup_indice_batch(self):
+        self.setup(max_sent=10, max_token=10, embedding_size=200, n_tokens=100)
+        batch = torch.zeros((self.max_sent, self.max_token), dtype=torch.long)
+        for s in range(self.max_sent):
+            for t in range(self.max_token):
+                batch[s][t] = torch.randint(low=0, high=self.n_tokens, size=(1,))
+
+        return batch
+
+    def test_cuda(self):
+        batch = self.setup_indice_batch().cuda()
+        pred = self.model(batch, torch.ones(batch.shape[:-1], dtype=torch.bool).cuda())
         assert True

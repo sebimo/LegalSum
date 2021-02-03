@@ -2,6 +2,8 @@
 # We might want to compile the models to get faster training, is that possible?
 # TODO Attention-layer for Encoding
 
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
@@ -39,8 +41,11 @@ class HierarchicalEncoder(nn.Module):
         self._sentence_query = nn.Linear(self.embedding_size, 1, bias=False)
         self._attention_softmax = nn.Softmax(dim=-1)
     
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
+    def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         X = self._embedding(X)
+        # Use the mask to exlude any embeddings of  padded vectors
+        X = torch.mul(mask.unsqueeze(-1), X)
+
         X = self._emb_layers(X)
 
         X = self.__get_token_attention__(X)
@@ -135,8 +140,10 @@ class RNNEncoder(nn.Module):
             nn.Sigmoid()
         )
 
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
+    def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         X = self._embedding(X)
+        # Use the mask to exlude any embeddings of  padded vectors
+        X = torch.mul(mask.unsqueeze(-1), X)
 
         initial_shape = X.shape
         #X = X.reshape((-1, initial_shape[-2], self.embedding_size))
@@ -159,3 +166,10 @@ class RNNEncoder(nn.Module):
     def classify(self, E: torch.Tensor) -> torch.Tensor:
         y = self._classification(E)
         return y
+
+def save_model(model: nn.Module, path: Path):
+    torch.save(model.state_dict(), path)
+
+def load_model(model: nn.Module, path: Path, device: torch.device):
+    model.load_state_dict(torch.load(path, map_location=device))
+    return model
