@@ -43,7 +43,7 @@ class Logger:
 
     def start_experiment(self, parameters: dict={}):
         time = datetime.now()
-        self.experiment = time.strftime("%d_%m_%Y %H%M%S")
+        self.experiment = time.strftime("%d_%m_%Y__%H%M%S")
         columns = [i[1] for i in self.c.execute("PRAGMA table_info(experiment)")]
         request = "INSERT INTO experiment ("
         for key in parameters:
