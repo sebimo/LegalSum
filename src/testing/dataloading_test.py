@@ -42,7 +42,6 @@ class TestDataloading:
                 [2,0,0]
             ])
         y_res = torch.tensor([1.0, 0.0, 0.0])
-        lengths = torch.tensor([3, 1, 1])
         mask = torch.tensor([
             [1, 1, 1],
             [1, 0, 0],
@@ -63,16 +62,12 @@ class TestDataloading:
         for i in range(3):
             assert y_res[i] == t[0][1][i]
 
-        assert lengths.dtype == t[0][2].dtype
-        assert lengths.shape == t[0][2].shape
-        for i in range(3):
-            assert lengths[i] == t[0][2][i]
 
-        assert mask.dtype == t[0][3].dtype
-        assert mask.shape == t[0][3].shape
+        assert mask.dtype == t[0][2].dtype
+        assert mask.shape == t[0][2].shape
         for i in range(3):
             for j in range(3):
-                assert mask[i][j] == t[0][3][i][j]
+                assert mask[i][j] == t[0][2][i][j]
 
     def test_extractive_dataset(self):
         DATA_PATH = Path("src")/"testing"/"test_data"

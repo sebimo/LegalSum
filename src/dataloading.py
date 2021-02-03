@@ -79,17 +79,18 @@ def collate(batch: List[Tuple[List[torch.Tensor], torch.Tensor]], device: torch.
     # We will introduce this collate function, if we want to deal with batch samples of varying sizes
     # Taken and adapted from @pinocchio https://discuss.pytorch.org/t/how-to-create-a-dataloader-with-variable-size-input/8278/13
     
-    targets = map(lambda doc: doc[1].to(device), batch)
+    targets = map(lambda doc: doc[1], batch)
 
     # We can have multiple documents per batch, each having multiple sentences
-    lengths = map(lambda doc: torch.tensor([sent.shape[0] for sent in doc[0]]).to(device), batch)
+    # ATTENTION: As we currently do not need the lengths, their calculation is excluded
+    # lengths = map(lambda doc: torch.tensor([sent.shape[0] for sent in doc[0]]), batch)
 
-    batch = map(lambda doc: torch.nn.utils.rnn.pad_sequence(doc[0], batch_first=True).to(device), batch)
+    batch = map(lambda doc: torch.nn.utils.rnn.pad_sequence(doc[0], batch_first=True), batch)
     
     res = []
-    for x, t, l in zip(batch, targets, lengths):
-        mask = (x!=0).to(device)
-        res.append((x,t,l,mask))
+    for x, t in zip(batch, targets):
+        mask = (x!=0)
+        res.append((x,t,mask))
     return res
 
 
