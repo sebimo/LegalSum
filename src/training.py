@@ -10,11 +10,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
-from torch.optim import SparseAdam
+from torch.optim import SparseAdam, Adam
 from torch.optim.lr_scheduler import MultiplicativeLR
 
 from .dataloading import ExtractiveDataset, collate
-from .evaluation import merge, finalize_statistic, calculate_confusion_matrix
+from .evaluation import merge, merge_epoch, finalize_statistic, calculate_confusion_matrix
 from .model import save_model
 from .model_logging.logger import Logger
 
@@ -51,7 +51,7 @@ class Trainer:
               lr: float= 5e-4,
               patience: int=5,
               cuda: bool= True,
-              workers: int=4):
+              workers: int=1):
         """ Starts the training iteration for the given model and dataset
             Params:
                 epochs = number of iterations through the whole dataset
@@ -79,7 +79,7 @@ class Trainer:
         if loss == LossType.BCE:
             self.loss = nn.BCELoss()
 
-        self.optim = SparseAdam(self.model.parameters(),lr=lr)
+        self.optim = Adam(list(self.model.parameters()),lr=lr)
         self.lr_scheduler = MultiplicativeLR(self.optim, lambda e: 0.95)
         self.start_epoch = 0
 
@@ -88,7 +88,7 @@ class Trainer:
 
         self.patience = patience
         best_loss = np.inf
-        for it in tqdm(range(self.start_epoch, epochs), desc="Training:"):
+        for it in tqdm(range(self.start_epoch, epochs), desc="Training"):
             try:
                 self.model.train()
                 self.train_mode = True
@@ -105,6 +105,11 @@ class Trainer:
                 val_stats = self.__process_epoch__(self.valloader)
                 for k in val_stats:
                     log_dict["val_"+k] = val_stats[k]
+                
+                for k in ["train_TP", "train_FP", "train_TN", "train_FN", "val_TP", "val_FP", "val_TN", "val_FN"]:
+                #for k in ["val_TP", "val_FP", "val_TN", "val_FN"]:
+                    del log_dict[k]
+                
                 # logging
                 self.logger.log_epoch(log_dict)
 
@@ -130,13 +135,13 @@ class Trainer:
 
     def __process_epoch__(self, dataloader: DataLoader) -> Dict[str, float]:
         epoch_stats = {}
-        for data in dataloader:
+        for data in tqdm(dataloader, "Batch"):
             if self.abstractive:
                 stats = self.__process_abstr_batch__(data)
             else:
                 stats = self.__process_extr_batch__(data)
             # The loss or other important metrics are saved to the 
-            epoch_stats = merge(epoch_stats, stats)
+            epoch_stats = merge_epoch(epoch_stats, stats)
         return finalize_statistic(epoch_stats)
 
     def __process_abstr_batch__(self, data):
@@ -183,41 +188,45 @@ class Trainer:
         return result
     
     def __process_extr_batch__(self, data):   
-        # reset gradients
-        self.optim.zero_grad()
+        batch_stats = {}
+        # Each entry in data is one document!
+        for x, y, mask in data:
+            # reset gradients
+            self.optim.zero_grad()
 
-        # run model
-        x, y, mask = data
-        if self.cuda():
-            x = x.cuda()
-            y = y.cuda()
-            mask = mask.cuda()
+            # run model
+            if self.cuda:
+                x = x.cuda()
+                y = y.cuda()
+                mask = mask.cuda()
 
-        pred = self.model.classify(self.model(x, mask))
-        
-        # calculate loss
-        loss: torch.Tensor = self.loss(pred, y)
-        if self.train_mode:
-            # backpropagation
-            loss.backward()
-            # We might want to do some gradient clipping
-            # nn.utils.clip_grad_norm_(self.model.parameters(), 1e-2)
-            self.optim.step()
-            self.lr_scheduler.step()
-        
-        # Identify which statistics are pushed to the epoch method
-        # evaluate batch
-        np_loss = loss.cpu().detach().numpy()
-        np_pred = pred.cpu().detach().numpy()
-        np_true = y.cpu().detach().numpy()
+            pred = self.model.classify(self.model(x, mask))
+            
+            # calculate loss
+            loss: torch.Tensor = self.loss(pred, y[:,None])
+            if self.train_mode:
+                # backpropagation
+                loss.backward()
+                # We might want to do some gradient clipping
+                # nn.utils.clip_grad_norm_(self.model.parameters(), 1e-2)
+                self.optim.step()
+                self.lr_scheduler.step()
+            
+            # Identify which statistics are pushed to the epoch method
+            # evaluate batch
+            np_loss = loss.cpu().detach().numpy()
+            result = {
+                "loss": np_loss
+            }
 
-        result = {
-            "loss": np_loss[0]
-        }
-        np_pred = np.where(np_pred < 0.5, 0., 1.)
-        result.update(calculate_confusion_matrix(np_true, np_pred))
+            np_pred = pred.cpu().detach().numpy()
+            np_true = y.cpu().detach().numpy()
+            np_pred = np.where(np_pred < 0.5, 0., 1.)
+            result.update(calculate_confusion_matrix(np_true, np_pred))
 
-        return result
+            batch_stats = merge(batch_stats, result)
+
+        return batch_stats
 
     def __save_model__(self):
         model_file = Path("model")/(self.logger.experiment + ".model")
