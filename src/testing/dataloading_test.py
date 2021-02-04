@@ -48,7 +48,7 @@ class TestDataloading:
             [1,0,0]
         ], dtype=torch.bool)
 
-        t = collate([(x,y)], self.device)
+        t = collate([(x,y)])
         
         assert len(t) == 1
         assert x_res.dtype == t[0][0].dtype
