@@ -22,6 +22,7 @@ class Logger:
         self.experiment = None
         self.exp_num = None
         self.epoch = 0
+        self.on = True
 
     def add_parameter(self, name: str, type: Type):
         type_str = "TEXT" if type == Type.TEXT else ("INTEGER" if type == Type.INT else "REAL")
@@ -44,52 +45,54 @@ class Logger:
     def start_experiment(self, parameters: dict={}):
         time = datetime.now()
         self.experiment = time.strftime("%d_%m_%Y__%H%M%S")
-        columns = [i[1] for i in self.c.execute("PRAGMA table_info(experiment)")]
-        request = "INSERT INTO experiment ("
-        for key in parameters:
-            if key not in columns:
-                raise sqlite3.OperationalError("Unknown column: "+key)
-            request += str(key)+","
-        request += "date) VALUES ("
-        for key in parameters:
-            if isinstance(parameters[key], str):
-                request += "\""+str(parameters[key])+"\","
-            else:
-                request += str(parameters[key])+","
-        request += "\""+str(self.experiment)+"\");"
-        print(request)
-        self.c.execute(request)
-        self.conn.commit()
+        if self.on:
+            columns = [i[1] for i in self.c.execute("PRAGMA table_info(experiment)")]
+            request = "INSERT INTO experiment ("
+            for key in parameters:
+                if key not in columns:
+                    raise sqlite3.OperationalError("Unknown column: "+key)
+                request += str(key)+","
+            request += "date) VALUES ("
+            for key in parameters:
+                if isinstance(parameters[key], str):
+                    request += "\""+str(parameters[key])+"\","
+                else:
+                    request += str(parameters[key])+","
+            request += "\""+str(self.experiment)+"\");"
+            print(request)
+            self.c.execute(request)
+            self.conn.commit()
 
-        comment = []
-        for key in parameters:
-            comment.append(str(key))
-            comment.append(str(parameters[key]))
-        comment = "_".join(comment)
-        self.writer = SummaryWriter(log_dir=Path("runs")/(self.experiment+"_"+comment))
+            comment = []
+            for key in parameters:
+                comment.append(str(key))
+                comment.append(str(parameters[key]))
+            comment = "_".join(comment)
+            self.writer = SummaryWriter(log_dir=Path("logging")/"runs"/(self.experiment+"_"+comment))
 
-        self.c.execute("SELECT rowid FROM experiment WHERE date=\""+self.experiment+"\";")
-        self.exp_num = self.c.fetchone()[0]
-        self.epoch = 0
+            self.c.execute("SELECT rowid FROM experiment WHERE date=\""+self.experiment+"\";")
+            self.exp_num = self.c.fetchone()[0]
+            self.epoch = 0
 
     def log_epoch(self, metrics: dict):
-        if self.exp_num is None or self.experiment is None:
-            raise sqlite3.OperationalError("Experiment not started.")
-        self.epoch += 1
-        columns = [i[1] for i in self.c.execute("PRAGMA table_info(epoch)")]
-        request = "INSERT INTO epoch ("
-        for key in metrics:
-            if key not in columns:
-                raise sqlite3.OperationalError("Unknown column: "+key)
-            request += str(key)+","
-        request += "experiment,epoch) VALUES ("
-        for key in metrics:
-            request += str(metrics[key])+","
-        request += str(self.exp_num)+","+str(self.epoch)+");"
-        for key in metrics:
-            self.writer.add_scalar(key, metrics[key], self.epoch)
-        self.c.execute(request)
-        self.conn.commit()
+        if self.on:
+            if self.exp_num is None or self.experiment is None:
+                raise sqlite3.OperationalError("Experiment not started.")
+            self.epoch += 1
+            columns = [i[1] for i in self.c.execute("PRAGMA table_info(epoch)")]
+            request = "INSERT INTO epoch ("
+            for key in metrics:
+                if key not in columns:
+                    raise sqlite3.OperationalError("Unknown column: "+key)
+                request += str(key)+","
+            request += "experiment,epoch) VALUES ("
+            for key in metrics:
+                request += str(metrics[key])+","
+            request += str(self.exp_num)+","+str(self.epoch)+");"
+            for key in metrics:
+                self.writer.add_scalar(key, metrics[key], self.epoch)
+            self.c.execute(request)
+            self.conn.commit()
 
     def exp_info(self):
         if self.exp_num is None or self.experiment is None:
@@ -101,7 +104,11 @@ class Logger:
         return {"parameter": params, "epochs": epochs}
 
     def log_model(self, model):
-        self.writer.add_graph(model)
+        if self.on:
+            self.writer.add_graph(model)
+
+    def set_status(self, on: bool):
+        self.on = on
 
     def __setup_experiment_db__(self):
         self.c.execute("SELECT count(name) FROM sqlite_master WHERE type='table' AND name='experiment'")
@@ -122,6 +129,33 @@ class Logger:
         self.conn.commit()
         self.conn.close()
 
+    def setup_extractive(self):
+        print("Loggable parameters: model, lr, abstractive")
+        self.add_parameter("model", Type.TEXT)
+        self.add_parameter("lr", Type.TEXT)
+        self.add_parameter("abstractive", Type.INT)
+        self.add_perf_metric("train_loss", Type.FLOAT)
+        self.add_perf_metric("val_loss", Type.FLOAT)
+        self.add_perf_metric("train_F1", Type.FLOAT)
+        self.add_perf_metric("train_Precision", Type.FLOAT)
+        self.add_perf_metric("train_Recall", Type.FLOAT)
+        self.add_perf_metric("val_F1", Type.FLOAT)
+        self.add_perf_metric("val_Precision", Type.FLOAT)
+        self.add_perf_metric("val_Recall", Type.FLOAT)
+
+    def setup_abstractive(self):
+        print("Loggable parameters: model, lr, abstractive")
+        self.add_parameter("model", Type.TEXT)
+        self.add_parameter("lr", Type.TEXT)
+        self.add_parameter("abstractive", Type.INT)
+        self.add_perf_metric("train_loss", Type.FLOAT)
+        self.add_perf_metric("val_loss", Type.FLOAT)
+        self.add_perf_metric("train_rouge-1", Type.FLOAT)
+        self.add_perf_metric("train_rouge-2", Type.FLOAT)
+        self.add_perf_metric("train_rouge-l", Type.FLOAT)
+        self.add_perf_metric("val_rouge-1", Type.FLOAT)
+        self.add_perf_metric("val_rouge-2", Type.FLOAT)
+        self.add_perf_metric("val_rouge-l", Type.FLOAT)
 
 if __name__ == "__main__":
     logger = Logger(database="test.db")
