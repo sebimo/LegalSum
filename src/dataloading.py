@@ -35,7 +35,7 @@ NORM_DB_PATH = Path("data")/"databases"/"norms.db"
 class ExtractiveDataset(Dataset):
     """ Dataset used for the extractive summarization training """
 
-    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer, transform: Callable[[List[int]],List[int]]=lambda x: x):
+    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer, transform: Callable[[List[int]],List[int]]=None):
         self.verdicts = verdict_paths
         self.tokenizer = tokenizer
         self.db_path = Path("data")/"databases"/"extractive.db"
@@ -44,12 +44,17 @@ class ExtractiveDataset(Dataset):
 
     def __getitem__(self, index: int):
         verdict_path = self.verdicts[index]
-        print(verdict_path)
         verdict = self.tokenizer.tokenize_verdict(verdict_path)
         fact_ind, reas_ind = get_ext_target_indices(verdict_path, self.db_path, self.tokenizer)
         
         # Define collate function that can deal with variable list lengths
-        x = list(map(lambda ind: torch.LongTensor(self.transform(ind)), chain(verdict["facts"], verdict["reasoning"])))
+        x = []
+        for ind in chain(verdict["facts"], verdict["reasoning"]):
+            x.append(self.__lam__(ind))
+        
+        # TODO only used for the intial dataset test!
+        #assert len(x) > 0, verdict_path
+        #assert len(fact_ind) > 0 or len(reas_ind) > 0, verdict_path
 
         # We have to create our targets for the extractive summarization over the facts and reasoning, i.e. we have to combine both their targets
         # into one long tensor
@@ -65,7 +70,14 @@ class ExtractiveDataset(Dataset):
     def __len__(self):
         return len(self.verdicts)
 
-def collate(batch: List[Tuple[List[torch.Tensor], torch.Tensor]], device: torch.device) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    def __lam__(self, ind: List[int]) -> torch.LongTensor:
+        # Define this lambda function as we otherwise cannot use multiple workers for dataloading
+        if self.transform is not None:
+            return torch.LongTensor(self.transform(ind))
+        else:
+            return torch.LongTensor(ind)
+
+def collate(batch: List[Tuple[List[torch.Tensor], torch.Tensor]]) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
     """ Will transform the given sentence list (each entry in the first list represents a document; this document contains various number of sentences), to 
         one sentence tensor with all sentences being padded to the same length.
         Returns:
@@ -103,8 +115,11 @@ def fix_data_split(percentage: List[float]=[0.8,0.1,0.1]):
     """
     assert sum(percentage) == 1.0
     assert len(percentage) == 3
+
+    # MAX_SIZE used to filter really long files
+    MAX_SIZE = 200
     
-    files = os.listdir(DATA_PATH)
+    files = [DATA_PATH/file for file in os.listdir(DATA_PATH) if os.path.getsize(DATA_PATH/file)/1024 < MAX_SIZE]
     train_files, temp_files = train_test_split(files, test_size=percentage[1]+percentage[2], shuffle=True, random_state=42)
     test_portion = percentage[2]/(percentage[1] + percentage[2])
     val_files, test_files = train_test_split(temp_files, test_size=test_portion, shuffle=True, random_state=43)
@@ -273,8 +288,8 @@ def get_norms(db_path: Path=NORM_DB_PATH) -> Set[str]:
     return norms
 
 if __name__ == "__main__":
-    tok = Tokenizer(MODEL_PATH)
+    #tok = Tokenizer(MODEL_PATH)
     #tok.create_token_id_mapping()
-    #fix_data_split()
-    create_ext_target_db(Path("data")/"databases"/"extractive.db", tok)
+    fix_data_split()
+    #create_ext_target_db(Path("data")/"databases"/"extractive.db", tok)
     
