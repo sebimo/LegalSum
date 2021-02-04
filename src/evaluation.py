@@ -45,6 +45,9 @@ def set_metrics(metrics: List[str]=["rouge-1", "rouge-2", "rouge-l"]):
 def calculate_confusion_matrix(y_true: np.array, y_pred: np.array) -> Dict[str, int]:
     """ This is just a wrapper around the sklearn confusion matrix, transformed to a dict to have a unified statistics format """
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    except ValueError:
+        print(y_true, y_pred)
+        raise ValueError
     res = {}
     res["TN"] = tn
     res["FP"] = fp
@@ -52,10 +55,10 @@ def calculate_confusion_matrix(y_true: np.array, y_pred: np.array) -> Dict[str, 
     res["TP"] = tp
     return res
 
-def merge(epoch_stats: Dict[str, Tuple[float, int]], stats: Dict[str, float]) -> Dict[str, Tuple[float, int]]:
+def merge(batch_stats: Dict[str, Tuple[float, int]], stats: Dict[str, float]) -> Dict[str, Tuple[float, int]]:
     """ Combines the local batch stats with the epoch stats """
     result = {}
-    if len(epoch_stats) == 0:
+    if len(batch_stats) == 0:
         for k in stats:
             result[k] = (stats[k], 1)
     else:
@@ -66,7 +69,23 @@ def merge(epoch_stats: Dict[str, Tuple[float, int]], stats: Dict[str, float]) ->
             else:
                 inc = 1
 
-            result[k] = (stats[k]+epoch_stats[k][0], epoch_stats[k][1]+inc)
+            result[k] = (stats[k]+batch_stats[k][0], batch_stats[k][1]+inc)
+    return result
+
+def merge_epoch(epoch_stats: Dict[str, Tuple[float, int]], stats: Dict[str, Tuple[float, int]]) -> Dict[str, Tuple[float, int]]:
+    """ Combines the local batch stats with the epoch stats """
+    result = {}
+    if len(epoch_stats) == 0:
+        for k in stats:
+            result[k] = stats[k]
+    else:
+        for k in stats:
+            # For direct counter variables, we do not want to increase the count
+            if k not in ["TP", "TN", "FP", "FN"]:
+                result[k] = (stats[k][0] + epoch_stats[k][0], stats[k][1] + epoch_stats[k][1])
+            else:
+                result[k] = (stats[k][0] + epoch_stats[k][0], epoch_stats[k][1])
+    
     return result
 
 def finalize_statistic(epoch_stats: Dict[str, Tuple[float, int]]) -> Dict[str, float]:
@@ -76,8 +95,8 @@ def finalize_statistic(epoch_stats: Dict[str, Tuple[float, int]]) -> Dict[str, f
         # Generally, we are just going for the average value
         result[k] = value/count
     if "TP" in result and "FP" in result and "TN" in result and "FN" in result and "Recall" not in result and "Precision" not in result and "F1" not in result:
-        result["Recall"] = result["TP"]/(result["TP"]+result["FN"])
-        result["Precision"] = result["TP"]/(result["TP"]+result["FP"])
-        result["F1"] = 2 * (result["Recall"]*result["Precision"])/(result["Recall"] + result["Precision"])
+        result["Recall"] = result["TP"]/(result["TP"]+result["FN"]) if result["TP"]+result["FN"] > 0 else 0
+        result["Precision"] = result["TP"]/(result["TP"]+result["FP"]) if result["TP"]+result["FP"] > 0 else 0
+        result["F1"] = 2 * (result["Recall"]*result["Precision"])/(result["Recall"] + result["Precision"]) if result["Recall"] + result["Precision"] > 0 else 0
     return result
 
