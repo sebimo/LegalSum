@@ -49,7 +49,7 @@ class HierarchicalEncoder(nn.Module):
         X = self._emb_layers(X)
 
         X = self.__get_token_attention__(X)
-        X = self.__get_sentence_attention__(X)
+        #X = self.__get_sentence_attention__(X)
 
         X = self._activation(X)
         return X
@@ -115,8 +115,8 @@ class RNNEncoder(nn.Module):
     def __init__(self,
                  embedding_size: int = 200,
                  n_tokens: int = 50000,
-                 layers = 2,
-                 bidirectional = True,
+                 layers = 1,
+                 bidirectional = False,
                  activation: nn.Module = nn.ReLU(),
                  dropout: float = 0.2,
                  embedding_layer: nn.Module=nn.Embedding):
@@ -131,7 +131,7 @@ class RNNEncoder(nn.Module):
         self.bidirectional = bidirectional
 
         self.gru1 = nn.GRU(self.embedding_size, self.embedding_size, num_layers=layers, bidirectional=self.bidirectional)
-        self.gru_size = self.embedding_size*self.layers*(2 if self.bidirectional else 1)
+        self.gru_size = self.embedding_size*(2 if self.bidirectional else 1)
         self.reduction1 = nn.Linear(self.gru_size, self.embedding_size)
         self.reduction2 = nn.Linear(self.embedding_size, self.embedding_size)
 
@@ -150,12 +150,13 @@ class RNNEncoder(nn.Module):
 
         # RNN over the tokens in a sentence
         X, _ = self.gru1(X)
-        X = X.reshape(initial_shape[0], initial_shape[1], self.gru_size)
+        #print(initial_shape, X.shape)
+        #X = X.reshape(initial_shape[0], initial_shape[1], self.gru_size)
         # Max over -2 as, we want to keep the embedding dimensionality
-        X = torch.mean(X, dim=-2, keepdim=True)
-        X = torch.squeeze(X, dim=-2)
+        #X = torch.mean(X, dim=-2, keepdim=True)
+        #X = torch.squeeze(X, dim=-2)
 
-        X = self.reduction1(X)
+        X = self.reduction1(X[:,-1,:])
         X = self._activation(X)
 
         X = self.reduction2(X)
@@ -166,6 +167,14 @@ class RNNEncoder(nn.Module):
     def classify(self, E: torch.Tensor) -> torch.Tensor:
         y = self._classification(E)
         return y
+
+class CNNEncoder(nn.Module):
+
+    def __init__(self):
+        raise NotImplementedError
+
+    def forward(self, x):
+        raise NotImplementedError
 
 def save_model(model: nn.Module, path: Path):
     torch.save(model.state_dict(), path)
