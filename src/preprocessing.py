@@ -109,6 +109,9 @@ class Tokenizer:
     def get_type(self):
         return TokenizationType.SPACE
 
+    def get_num_tokens(self):
+        return len(self.tok2id)
+
 
 class BPTokenizer(Tokenizer):
 
@@ -141,6 +144,9 @@ class BPTokenizer(Tokenizer):
 
     def get_type(self):
         return TokenizationType.BYTE_PAIR
+
+    def get_num_tokens(self):
+        raise NotImplementedError
 
 def load_verdict(file: Path, normalize: bool) -> Dict[str, List[List[str]]]:
     with io.open(file, "r", encoding="utf-8") as f:
