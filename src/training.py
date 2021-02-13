@@ -194,6 +194,9 @@ class Trainer:
             # reset gradients
             self.optim.zero_grad()
 
+            # TODO cut up inputs, which are to big for processing here!
+            # -> we need to define a threshold for encoding sentences
+            
             # run model
             if self.cuda:
                 x = x.cuda()
