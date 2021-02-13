@@ -33,13 +33,17 @@ DATA_PATH = Path("data")/"dataset"
 
 class Tokenizer:
 
-    def __init__(self, path: Path, normalize: bool=True):
+    def __init__(self, path: Path, normalize: bool=True, mapping: Dict[str, Dict]=None):
         """ Initializes an empty tokenizer and will load a trained tokenizer, if the path exists """
         self.path = path
         self.normalize = normalize
         self.tok2id = None
         self.id2tok = None
-        if (self.path/"tokenizer.pkl").exists():
+
+        if mapping is not None:
+            self.tok2id = mapping["tok2id"]
+            self.id2tok = mapping["id2tok"]    
+        elif (self.path/"tokenizer.pkl").exists():
             with io.open(self.path/"tokenizer.pkl", "rb") as f:
                 state = pickle.load(f)
                 self.tok2id = state["tok2id"]

@@ -14,7 +14,7 @@ from collections import Counter
 import pickle
 from pathlib import Path
 from itertools import chain
-from typing import List, Tuple, Set, Callable
+from typing import List, Tuple, Set, Callable, Dict
 import sqlite3
 
 from tqdm import tqdm
