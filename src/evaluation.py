@@ -45,9 +45,6 @@ def set_metrics(metrics: List[str]=["rouge-1", "rouge-2", "rouge-l"]):
 def calculate_confusion_matrix(y_true: np.array, y_pred: np.array) -> Dict[str, int]:
     """ This is just a wrapper around the sklearn confusion matrix, transformed to a dict to have a unified statistics format """
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-    except ValueError:
-        print(y_true, y_pred)
-        raise ValueError
     res = {}
     res["TN"] = tn
     res["FP"] = fp
