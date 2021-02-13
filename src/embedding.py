@@ -62,20 +62,23 @@ def train_word2vec(embedding_path: Path=Path("embedding")/"word2vec"/"100.wv"):
     """ Will automatically create a word2vec model from the verdicts found under data/dataset and save it to embedding_path"""
     tok = Tokenizer(TOKENIZER_PATH, normalize=True, mapping=None)
     sentences = []
-    for verdict in os.listdir(DATA_PATH):
+    print("Train word2vec")
+    for verdict in tqdm(os.listdir(DATA_PATH), desc="Tokenize"):
         ver_dict = tok.tokenize_verdict_without_id(DATA_PATH/verdict)
         for r in ["facts", "reasoning", "guiding_principle"]:
             for sentence in ver_dict[r]:
                 sentences.append(sentence)
 
-    model = W2V(sentences=sentences, vector_size=100, window=5, min_count=100, workers=8)
-    model.save(embedding_path)
+    print("Start training word2vec model")
+    model = W2V(sentences=sentences, size=100, window=5, min_count=100, iter=15, workers=8)
+    model.save(str(embedding_path))
 
 def convert_glove(embedding_path: Path=Path("embedding")/"glove"/"100.wv", create_corpus: bool=False):
     """ Read the result from the glove implementation -> glove.pkl 
         Code taken from the python evalutation script from https://github.com/stanfordnlp/GloVe + adapted to our use case 
     """
 
+    print("Reading GloVe embeddings")
     with open(Path("embedding")/"glove"/"vocab.txt", "r") as f:
         words = [x.rstrip().split(' ')[0] for x in f.readlines()]
     with open(Path("embedding")/"glove"/"vectors.txt", "r") as f:
@@ -113,7 +116,8 @@ def create_glove_corpus():
     """
     tok = Tokenizer(TOKENIZER_PATH, normalize=True, mapping=None)
     lines = []
-    for verdict in tqdm(os.listdir(DATA_PATH)):
+    print("Creating GloVe corpus")
+    for verdict in tqdm(os.listdir(DATA_PATH), desc="Tokenize"):
         sentences = []
         ver_dict = tok.tokenize_verdict_without_id(DATA_PATH/verdict)
         for r in ["facts", "reasoning", "guiding_principle"]:
@@ -126,5 +130,13 @@ def create_glove_corpus():
         f.writelines(lines)
 
 if __name__ == "__main__":
+    """ create_glove_corpus() will convert the dataset to the needed structure for the c implementation of GloVe.
+        The repository was cloned and changed to use the newly created file as input.
+        convert_glove() will take the vectors.txt and vocab.txt from the result (need to be in embedding/glove) and
+        convert them to a unified file with the index mappings to words + the word vectors as a numpy array.
+        -> GloVe will read this pkl file 
+    """
     #create_glove_corpus()
-    convert_glove()
+    #convert_glove()
+    """ word2vec setup """
+    #train_word2vec()
