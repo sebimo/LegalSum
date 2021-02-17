@@ -17,19 +17,20 @@ DATA_PATH = Path("data")/"dataset"
 class Word2Vec(nn.Module):
 
     def __init__(self,
-                 embedding_path: Path=Path("embedding")/"word2vec"/"100.wv",
                  n_tokens: int=-1, 
-                 embedding_size: int=100):
+                 embedding_size: int=100,
+                 embedding_path: Path=Path("embedding")/"word2vec"/"100.wv"):
         super().__init__()
-        word_model = KeyedVectors.load(embedding_path, mmap='r')
+        word_model = KeyedVectors.load(str(embedding_path), mmap='r')
         self.id2tok, self.tok2id = {}, {}
-        for word in word_model.vocab:
-            index = word_model.vocab[word].index
+        for word in word_model.wv.vocab:
+            index = word_model.wv.vocab[word].index
             self.id2tok[index] = word
             self.tok2id[word] = index
 
-        word_model = torch.tensor(word_model.vectors)
+        word_model = torch.tensor(word_model.wv.vectors)
         self.embedding_size = embedding_size
+        assert self.embedding_size == 100, "Pretrained word2vec embeddings have size 100"
         self.embedding = nn.Embedding.from_pretrained(word_model)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -38,25 +39,34 @@ class Word2Vec(nn.Module):
     def get_word_mapping(self):
         return {"id2tok": self.id2tok, "tok2id": self.tok2id}
 
+    def get_name(self):
+        return "word2vec"
+
 
 class GloVe(nn.Module):
 
     def __init__(self,
-                 embedding_path: Path=Path("embedding")/"glove"/"glove.pkl",
                  n_tokens: int=-1,
-                 embedding_size: int=100):
+                 embedding_size: int=100,
+                 embedding_path: Path=Path("embedding")/"glove"/"glove.pkl"):
         super().__init__()
         with open(embedding_path, "rb") as f:
             d = pickle.load(f)
         self.id2tok = d["id2tok"]
         self.tok2id = d["tok2id"]
-        self.embedding = nn.Embedding.from_pretrained(torch.tensor(d["wv"]))
+        self.embedding_size = embedding_size
+        assert self.embedding_size == 100, "Pretrained GloVe embeddings have size 100"
+        glove = torch.tensor(d["wv"], dtype=torch.float32)
+        self.embedding = nn.Embedding.from_pretrained(glove)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.embedding(X)
 
     def get_word_mapping(self):
         return {"id2tok": self.id2tok, "tok2id": self.tok2id}
+
+    def get_name(self):
+        return "glove"
 
 def train_word2vec(embedding_path: Path=Path("embedding")/"word2vec"/"100.wv"):
     """ Will automatically create a word2vec model from the verdicts found under data/dataset and save it to embedding_path"""

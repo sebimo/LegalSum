@@ -41,7 +41,7 @@ class Tokenizer:
         self.id2tok = None
 
         if mapping is not None:
-            self.tok2id = mapping["tok2id"]
+            self.tok2id = defaultdict(int, mapping["tok2id"])
             self.id2tok = mapping["id2tok"]    
         elif (self.path/"tokenizer.pkl").exists():
             with io.open(self.path/"tokenizer.pkl", "rb") as f:
@@ -229,6 +229,10 @@ def remove_special_characters(
     def filter_tokens(tokens: List[str]) -> List[str]:
         # Hacky solution: We have to pass in a list to have a mutable counter, consistent between the different tokens
         # Otherwise we would loose the paren_counter between the individual tokens and start at 0
+        # 
+        # ATTENTION: Some parentheses are split between multiple lines; we could keep the paren_counter between multiple
+        # lines, but this would also lead to same cases where info would be cut if someone forgot to include a parentheses
+        # -> thus it is more sensible to not cut the tokens across sentences
         paren_counter = [0]
         return list(filter(lambda token: paren_filter(token, paren_counter), tokens))
 

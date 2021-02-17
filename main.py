@@ -5,7 +5,7 @@ import numpy as np
 
 from src.training import Trainer, LossType
 from src.model import RNNEncoder, HierarchicalEncoder
-from src.embedding import Word2Vec
+from src.embedding import Word2Vec, GloVe
 from src.dataloading import ExtractiveDataset, get_train_files, get_val_files
 from src.preprocessing import Tokenizer
 from src.model_logging.logger import Logger as MyLogger
@@ -13,6 +13,7 @@ from src.model_logging.logger import Logger as MyLogger
 ABSTRACTIVE = False
 TOKENIZER_PATH = Path("model")
 LOGGER_ON = True
+EMBEDDINGS = ["training", "word2vec", "glove"]
 
 def start():
     logger = MyLogger(database=Path("logging")/"training.db")
@@ -23,16 +24,20 @@ def start():
 
     logger.set_status(LOGGER_ON)
 
+    embedding_size = 100
+    embedding = GloVe(embedding_size=embedding_size)
+
     # ATTENTION: We can include here a different mapping between tokens and ids, if we for example use word2vec
-    tok = Tokenizer(TOKENIZER_PATH, normalize=True, mapping=None)
+    tok = Tokenizer(TOKENIZER_PATH, normalize=True, mapping=embedding.get_word_mapping())
     # TODO reduced dataset
     # TODO REMOVE ALL FILES WITH EMPTY REASONING/FACTS OR NO TARGET
     trainset = ExtractiveDataset(get_train_files()[:10], tok)
     valset = ExtractiveDataset(get_val_files()[:10], tok)
-    for _ in range(10):
+    for _ in range(1):
         model = (
-            HierarchicalEncoder(embedding_size=200, 
-                                n_tokens=tok.get_num_tokens()),
+            HierarchicalEncoder(embedding_size=embedding_size, 
+                                n_tokens=tok.get_num_tokens(),
+                                embedding_layer=embedding),
             "HIER"
         )
         lr = random_log_lr()
@@ -40,7 +45,8 @@ def start():
         logger_params = {
             "model": model[1],
             "lr": lr,
-            "abstractive": 1 if ABSTRACTIVE else 0
+            "abstractive": 1 if ABSTRACTIVE else 0,
+            "embedding": embedding.get_name()
         }
         logger.start_experiment(logger_params)
 

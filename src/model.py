@@ -21,7 +21,7 @@ class HierarchicalEncoder(nn.Module):
         self._activation = activation
         
         # We might want to replace this with something different
-        self._embedding = embedding_layer(n_tokens, embedding_size)
+        self._embedding = embedding_layer
         self._emb_layers = nn.Sequential(
             nn.Dropout(p=self.dropout),
             nn.Linear(self.embedding_size, self.embedding_size),
