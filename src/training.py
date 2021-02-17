@@ -51,7 +51,7 @@ class Trainer:
               lr: float= 5e-4,
               patience: int=5,
               cuda: bool= True,
-              workers: int=1):
+              workers: int=4):
         """ Starts the training iteration for the given model and dataset
             Params:
                 epochs = number of iterations through the whole dataset
@@ -222,9 +222,12 @@ class Trainer:
                 "loss": np_loss
             }
 
-            np_pred = pred.cpu().detach().numpy()
+            np_pred = pred.cpu().detach().numpy().squeeze(axis=1)
             np_true = y.cpu().detach().numpy()
             np_pred = np.where(np_pred < 0.5, 0., 1.)
+            assert np_pred.shape[0] > 0, "Predictions empty"+str(np_pred.shape)
+            assert np_true.shape[0] > 0, "Targets empty"+str(np_true.shape)
+            assert np_true.shape == np_pred.shape, "Shape mismatch"+str(np_true.shape) +" != "+str(np_pred.shape)
             result.update(calculate_confusion_matrix(np_true, np_pred))
 
             batch_stats = merge(batch_stats, result)

@@ -53,8 +53,8 @@ class ExtractiveDataset(Dataset):
             x.append(self.__lam__(ind))
         
         # TODO only used for the intial dataset test!
-        #assert len(x) > 0, verdict_path
-        #assert len(fact_ind) > 0 or len(reas_ind) > 0, verdict_path
+        assert len(x) > 0, verdict_path
+        assert len(fact_ind) > 0 or len(reas_ind) > 0, verdict_path
 
         # We have to create our targets for the extractive summarization over the facts and reasoning, i.e. we have to combine both their targets
         # into one long tensor

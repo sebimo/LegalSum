@@ -13,7 +13,7 @@ class HierarchicalEncoder(nn.Module):
                  embedding_size: int = 200,
                  n_tokens: int = 50000,
                  activation: nn.Module = nn.ReLU(),
-                 dropout: float = 0.2,
+                 dropout: float = 0.0,
                  embedding_layer: nn.Module=nn.Embedding):
         super().__init__()
         self.embedding_size = embedding_size
