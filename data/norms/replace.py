@@ -19,6 +19,7 @@ IGNORE_LIST = ["Abs", "Satz"]
 class NormState(Enum):
     DOUBLE = 0
     SINGLE = 1
+    UNKNOWN = -1
 
 def split(sentences: List[str]) -> Iterable[List[str]]:
     return map(lambda sentence: list(filter(lambda tok: tok is not None and len(tok) > 0, re.split(r"[\s]+", sentence))), sentences)
@@ -97,21 +98,105 @@ def process_normchain(chain: List[str], normDB: NormDatabase) -> Tuple[List[str]
             processed_norms.append(norm)
         else:
             # Split on "," -> a norm might be linked to the previous norm, i.e. we need to keep info from the previous split element
-            # Cases:
-            #  * "§§ x, y, z NORM" -> "§ x NORM", "§ y NORM", "§ z NORM" 
-            #    -> this case ends, if we are at the end of the text or a comma part with §
-            #    = NormState.DOUBLE
-            #  * "NORM § x, § y, § z" -> "§ x NORM", "§ y NORM", "§ z NORM" 
-            #    -> this case ends, if we are at the end of the text or a comma part with §§ or a comma part which is no starting with §
-            #    = NormState.SINGLE
-            raise NotImplementedError
+            norm_split = norm.split(",")
+            current_paragraphs = []
+            current_norm = None
+            state = NormState.UNKNOWN
+            for split in norm_split:
+                split = split.strip()
+                if state == NormState.UNKNOWN:
+                    assert len(current_paragraphs) == 0
+                    assert current_norm is None
+
+                    if "§" not in split:
+                        processed_norms.append(split)
+                    if split.startswith("§§"):
+                        current_paragraphs = [split[2:].strip()]
+                        state = NormState.DOUBLE
+                    elif split.split(" ")[0].isalnum():
+                        # Now we have identified that we are in a norm with "§" + it starts with a word 
+                        # We now will identify the norm (= everything before the "§") + its paragraphs
+                        paragraph_split = split.split("§")
+                        assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(paragraph_split)
+                        current_norm = paragraph_split[0].strip()
+                        current_paragraphs = [paragraph_split[1].strip()]
+                        state = NormState.SINGLE
+                    else:
+                        raise ValueError("Starting norm does not follow known format: "+str(split))
+
+                elif state == NormState.DOUBLE:
+                    # We will end this state, if we find a split which does contain a "§"
+                    assert len(current_paragraphs) > 0
+                    assert current_norm is None
+                    if "§" in split:
+                        # Heuristic: The last word in the last current_paragraph is the norm
+                        current_norm = current_paragraphs[-1].split(" ")[-1]
+                        current_paragraphs[-1] = " ".join(current_paragraphs[-1].split(" ")[:-1])
+                        processed_norms += finalize_norm(current_norm, current_paragraphs)
+
+                        # We now differentiate between the different cases as above -> because we are starting a new norm
+                        if split.startswith("§§"):
+                            current_paragraphs = [split[2:].strip()]
+                            current_norm = None
+                            state = NormState.DOUBLE
+                        elif split.split(" ")[0].isalnum():
+                            paragraph_split = split.split("§")
+                            assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(paragraph_split)
+                            current_norm = paragraph_split[0].strip()
+                            current_paragraphs = [paragraph_split[1].strip()]
+                            state = NormState.SINGLE
+                        else:
+                            raise ValueError("Norm does not follow known format: "+str(split))
+                    else:
+                        current_paragraphs.append(split)
+                elif state == NormState.SINGLE:
+                    assert len(current_paragraphs) > 0
+                    assert current_norm is not None
+                    if "§§" in split:
+                        processed_norms += finalize_norm(current_norm, current_paragraphs)
+                        if split.startswith("§§"):
+                            current_paragraphs = [split[2:].strip()]
+                            current_norm = None
+                            state = NormState.DOUBLE
+                        else:
+                            raise ValueError("Norm does not follow known format: "+str(split))
+                    elif "§" in split:
+                        # Check if we are beginning a new norm
+                        # ATTENTION: we can only do this differentiation, because we assume that in NormState.SINGLE every individual norm has its own "§"
+                        if split.split(" ")[0].isalnum():
+                            processed_norms += finalize_norm(current_norm, current_paragraphs)
+                            
+                            paragraph_split = split.split("§")
+                            assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(paragraph_split)
+                            current_norm = paragraph_split[0].strip()
+                            current_paragraphs = [paragraph_split[1].strip()]
+                            state = NormState.SINGLE
+                        else:
+                            # We want to remove everything before the first "§"
+                            split = list(map(lambda entry: entry.strip(), split.split("§")[1:]))
+                            current_paragraphs += split
+                    else:
+                        current_paragraphs.append(split)
+
+            # Include all remaining results from current_paragraphs + current_norm
+            if len(current_paragraphs) > 0:
+                if state == NormState.DOUBLE:
+                    current_norm = current_paragraphs[-1].split(" ")[-1]
+                    current_paragraphs[-1] = " ".join(current_paragraphs[-1].split(" ")[:-1])
+                processed_norms += finalize_norm(current_norm, current_paragraphs)
 
     norm_dict = {}
-    for norm in norms:
+    for norm in processed_norms:
         placeholder = normDB.register_norm(norm)
         norm_dict[placeholder] = norm
-    return norms, norm_dict
+    return processed_norms, norm_dict
 
+def finalize_norm(norm: str, paragraphs: List[str]) -> List[str]:
+    """ Will replicate norm to the paragraphs s.t. each paragraph has the norm information """
+    result = []
+    for p in paragraphs:
+        result.append(norm+" § "+p)
+    return result
 
 def read_user_info(path: Path=Path("data")/"norms"/"config.ini"):
     global USER_INFO

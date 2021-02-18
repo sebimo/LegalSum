@@ -38,12 +38,26 @@ class Test:
         assert n == {"__norm3__": "SUrlV § 13 Abs. 1", "__norm4__": "SUrlV § 15"}
         t3 = ["§§ 46, 46a, 47 BRAO"]
         r, n = process_normchain(t3, db)
-        assert r == ["§ 46 BRAO", "§ 46a BRAO", "§ 47 BRAO"]
-        assert n == {"__norm5__": "§ 46 BRAO", "__norm6__": "§ 46a BRAO", "__norm7__": "§ 47 BRAO"}
+        assert r == ["BRAO § 46", "BRAO § 46a", "BRAO § 47"]
+        assert n == {"__norm5__": "BRAO § 46", "__norm6__": "BRAO § 46a", "__norm7__": "BRAO § 47"}
         t3 = ["§§ 46, 46a BRAO"]
         r, n = process_normchain(t3, db)
-        assert r == ["§ 46 BRAO", "§ 46a BRAO"]
-        assert n == {"__norm5__": "§ 46 BRAO", "__norm6__": "§ 46a BRAO"}
+        assert r == ["BRAO § 46", "BRAO § 46a"]
+        assert n == {"__norm5__": "BRAO § 46", "__norm6__": "BRAO § 46a"}
+        # Mixture:
+        t = ["§§ 46, 46a BRAO; SUrlV § 13 Abs. 1, SUrlV § 15"]
+        r, _ = process_normchain(t, db)
+        assert r == ["BRAO § 46", "BRAO § 46a", "SUrlV § 13 Abs. 1", "SUrlV § 15"]
+        t = ["SUrlV § 13 Abs. 1, SUrlV § 15;§§ 46, 46a BRAO" ]
+        r, _ = process_normchain(t, db)
+        assert r == ["SUrlV § 13 Abs. 1", "SUrlV § 15", "BRAO § 46", "BRAO § 46a"]
+        t = ["SUrlV § 13 Abs. 1, SUrlV § 15, §§ 46, 46a BRAO" ]
+        r, _ = process_normchain(t, db)
+        assert r == ["SUrlV § 13 Abs. 1", "SUrlV § 15", "BRAO § 46", "BRAO § 46a"]
+        t = ["§§ 46, 46a BRAO, SUrlV § 13 Abs. 1, SUrlV § 15"]
+        r, _ = process_normchain(t, db)
+        assert r == ["BRAO § 46", "BRAO § 46a", "SUrlV § 13 Abs. 1", "SUrlV § 15"]
+        # Known norms
         t4 = ["__norm12969__"]
         r, n = process_normchain(t4, db)
         assert r == t4
