@@ -48,11 +48,16 @@ def calculate_confusion_matrix(y_true: np.array, y_pred: np.array) -> Dict[str, 
         tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     except ValueError:
         # Error: confusion_matrix does not return tuple of size 4
-        # We could also just set the res values here to some arbitrary error value?
-        # Because it seems that the confusion_matrix will only return a smaller tuple, if there are no predictions?
-        print(y_true)
-        print(y_pred)
-        raise ValueError
+        # This happens, if we only have one value i.e. all predictions and targets are 1
+        # We will assume that all predictions are correct in this case -> i.e. either all TN or TP
+        fp, fn = 0, 0
+        if y_true[0] == 0.0:
+            tn = y_true.shape[0]
+            tp = 0
+        else:
+            tp = y_true.shape[0]
+            tn = 0
+            
     res = {}
     res["TN"] = tn
     res["FP"] = fp
@@ -99,6 +104,8 @@ def finalize_statistic(epoch_stats: Dict[str, Tuple[float, int]]) -> Dict[str, f
         value, count = epoch_stats[k]
         # Generally, we are just going for the average value
         result[k] = value/count
+
+    # ATTENTION: This will do a micro average; if we wanted to do a macro average, we would need to calculate F1, Precision, Recall for each batch
     if "TP" in result and "FP" in result and "TN" in result and "FN" in result and "Recall" not in result and "Precision" not in result and "F1" not in result:
         result["Recall"] = result["TP"]/(result["TP"]+result["FN"]) if result["TP"]+result["FN"] > 0 else 0
         result["Precision"] = result["TP"]/(result["TP"]+result["FP"]) if result["TP"]+result["FP"] > 0 else 0
