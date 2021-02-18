@@ -1,6 +1,7 @@
 import pytest
 import torchtest
 import torch
+from torch.nn import Embedding
 
 from ..model import HierarchicalEncoder, RNNEncoder
 
@@ -11,7 +12,8 @@ class TestHierarchicalEncoder:
         self.max_token = max_token
         self.embedding_size = embedding_size
         self.n_tokens = n_tokens
-        self.model = HierarchicalEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens)
+        self.embeddings = Embedding(num_embeddings=n_tokens, embedding_dim=embedding_size)
+        self.model = HierarchicalEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens, embedding_layer=self.embeddings)
 
     def setup_batch(self):
         self.setup()
@@ -75,7 +77,8 @@ class TestRNNcuda:
         self.max_token = max_token
         self.embedding_size = embedding_size
         self.n_tokens = n_tokens
-        self.model = HierarchicalEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens).cuda()
+        self.embeddings = Embedding(num_embeddings=n_tokens, embedding_dim=embedding_size)
+        self.model = HierarchicalEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens, embedding_layer=self.embeddings).cuda()
 
     def setup_batch(self):
         self.setup()
