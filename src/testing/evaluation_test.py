@@ -122,6 +122,30 @@ class TestRouge:
         for k in res:
             assert res[k] == y[k]
 
+        e = {
+            "TP": (20, 1),
+            "FP": (0, 1),
+            "TN": (0, 1),
+            "FN": (0, 1)
+        }
+        res = finalize_statistic(e)
+        assert res["F1"] == 1.0
+        assert res["Recall"] == 1.0
+        assert res["Precision"] == 1.0
+
+        e = {
+            "TP": (0, 1),
+            "FP": (0, 1),
+            "TN": (20, 1),
+            "FN": (0, 1)
+        } 
+        # This case is really senseless from a prediction standpoint, as we do not have any targets
+        # But we still need to check that our implementation does the same as the sklearn implementation
+        res = finalize_statistic(e)
+        assert res["F1"] == 0.0
+        assert res["Recall"] == 0.0
+        assert res["Precision"] == 0.0
+
         for _ in range(10):
             # The upperbound (2 in this case) is exclusive
             t = np.random.randint(0,2,100)
