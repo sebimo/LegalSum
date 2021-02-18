@@ -1,6 +1,6 @@
 import pytest
 
-from ..replace import split, process_normchain
+from ..replace import split, process_normchain, process_sentence
 from ..normdb import NormDBStub
 
 class Test:
@@ -72,3 +72,9 @@ class Test:
         r, n = process_normchain(t5, db)
         assert r == t5
         assert n == {}
+
+    def test_sentence(self):
+        db = NormDBStub()
+        sentence = "Zulassungsgrund nach §124 Abs.2 Nr.1 VwGO ist nicht hinreichend dargelegt"
+        res, norms = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach __norm1__ ist nicht hinreichend dargelegt"

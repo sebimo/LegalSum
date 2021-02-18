@@ -1,6 +1,7 @@
 # Script is used to go through all documents and replace all norms with their identifier __normxyz__
 import re
 import io
+import os
 import json
 from typing import Iterable, List, Dict, Tuple
 from pathlib import Path
@@ -13,18 +14,27 @@ from .normdb import NormDatabase
 
 USER_INFO = dict()
 
+NORM_PATH = Path("..")/"HiWi"/"Normen"
+
 # Used for the custom matching method; all tokens in IGNORE_LIST will be jumped over and no norm cut will be made
 IGNORE_LIST = ["Abs", "Satz"]
+NORM_SET = set()
 
+# States used for parsing the normchain
 class NormState(Enum):
     DOUBLE = 0
     SINGLE = 1
     UNKNOWN = -1
 
+# States used for searching through the individual sentences
+class SearchMode(Enum):
+    UNKNOWN = -1
+    NORM = 1
+
 def split(sentences: List[str]) -> Iterable[List[str]]:
     return map(lambda sentence: list(filter(lambda tok: tok is not None and len(tok) > 0, re.split(r"[\s]+", sentence))), sentences)
 
-def process_verdict(filepath: Path):
+def process_verdict(filepath: Path, normDB: NormDatabase):
     """ Will load the verdict and look through its 
          - normchain (Check that this is created as a dictionary)
          - guiding principles
@@ -35,29 +45,31 @@ def process_verdict(filepath: Path):
         
         Will rewrite the verdict to the path, if any changes have happened.
     """
+    # We could move this one layer up, but we do not want to spill the implementation details there
+    setup_norm_set()
     verdict = __load_verdict__(filepath)
     norms = dict()
-    guid_princ_0, n = process_segment(verdict["guiding_principle"][0])
+    guid_princ_0, n = process_segment(verdict["guiding_principle"][0], normDB)
     if len(n) > 0:
         verdict["guiding_principle"][0] = guid_princ_0
         norms.update(n)
 
-    guid_princ_1, n = process_segment(verdict["guiding_principle"][1])
+    guid_princ_1, n = process_segment(verdict["guiding_principle"][1], normDB)
     if len(n) > 0:
         verdict["guiding_principle"][1] = guid_princ_1
         norms.update(n)
 
-    facts, n = process_segment(verdict["facts"])
+    facts, n = process_segment(verdict["facts"], normDB)
     if len(n) > 0:
         verdict["facts"] = facts
         norms.update(n)
 
-    reasoning, n = process_segment(verdict["reasoning"])
+    reasoning, n = process_segment(verdict["reasoning"], normDB)
     if len(n) > 0:
         verdict["reasoning"] = reasoning
         norms.update(n)
 
-    chain, n = process_normchain(verdict["normchain"])
+    chain, n = process_normchain(verdict["normchain"], normDB)
     if len(n) > 0:
         verdict["normchain"] = chain
         norms.update(n)
@@ -69,15 +81,68 @@ def process_verdict(filepath: Path):
 
     __write_verdict__(verdict, filepath)
 
+
+def setup_norm_set():
+    """ Gets all the known abbreviation for known norms from the file names of the norm dataset """
+    global NORM_SET
+    if len(NORM_SET) == 0:
+        for file in os.listdir(NORM_PATH):
+            NORM_SET.add(file[:len(".json")])
     
 def process_segment(segment: List[str], normDB: NormDatabase) -> Tuple[List[str], Dict[str, str]]:
     """ Go through all the sentences in the segment and check, if they do contain any norms which were not found so far 
         Replace them + collect into a dictionary
     """
-    raise NotImplementedError
+    processed_segments = []
+    norms = {}
+    for sentence in segment:
+        processed_sentence, extracted_norms = process_sentence(sentence, normDB)
+        processed_segments.append(processed_sentence)
+        norms.update(extracted_norms)
+
+    return processed_segments, norms   
 
 def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Dict[str, str]]:
-    pass
+    """ This is not a perfect algorithm for finding norms in the text, but it is a non-destructive algorithm.
+        That means any norm which is removed from the text, can be later swapped back in and the text stays the same.
+        This algorithm will only find a norm, if it is in the norm dataset & its abbreviation is exactly matched (this might not hold for all norms!)
+        This limitation is important, as those are the only norms we can match towards a specific text anyways.
+    """
+    split = sentence.split(" ")
+    pieces = []
+    norms = {}
+    current_norm = None
+    state = SearchMode.UNKNOWN
+    PATIENCE_START = 2
+    patience = PATIENCE_START
+    for token in split:
+        if state == SearchMode.UNKNOWN:
+            if token in NORM_SET or "§" in token:
+                current_norm = [token]
+                state = SearchMode.NORM
+                patience = PATIENCE_START
+            else:
+                pieces.append(token)
+        else:
+            # We need to be here a bit more precise, especially with the patience, i.e. when do we stop if we reduced the patience?
+            if token.isnumeric() or token in IGNORE_LIST or token in NORM_SET :
+                current_norm.append(token)
+            elif patience > 0:
+                # We might want to introduce some patience value, s.t. we are more robust against wrongly written tokens
+                # I.e. we can look two tokens into the future
+                patience -= 1
+                current_norm.append(token)
+            else:
+                norm = " ".join(current_norm)
+                placeholder = normDB.register_norm(norm)
+                norms[placeholder] = norm
+                current_norm = None
+
+                pieces.append(placeholder)
+                state = SearchMode.UNKNOWN
+
+    finalized_sentence = " ".join(pieces)
+    return finalized_sentence, norms
 
 def process_normchain(chain: List[str], normDB: NormDatabase) -> Tuple[List[str], Dict[str, str]]:
     """ Will go through the normchain and replace all occurences of norms, i.e. everything not __normxyz__
