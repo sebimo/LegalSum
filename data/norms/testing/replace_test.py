@@ -60,6 +60,20 @@ class Test:
         t = ["BGB §§ 434, 437, 440, 323, 278, 823"]
         r, _ = process_normchain(t, db)
         assert r == ["BGB § 434", "BGB § 437", "BGB § 440", "BGB § 323", "BGB § 278", "BGB § 823"]
+        
+        # Edge cases:
+        t = ["Normen: BGB §§ 434, 437, 440, 323, 278, 823"]
+        r, _ = process_normchain(t, db)
+        assert r == ["BGB § 434", "BGB § 437", "BGB § 440", "BGB § 323", "BGB § 278", "BGB § 823"]
+        t = ["Gesetz: BGB §§ 434, 437, 440, 323, 278, 823"]
+        r, _ = process_normchain(t, db)
+        assert r == ["BGB § 434", "BGB § 437", "BGB § 440", "BGB § 323", "BGB § 278", "BGB § 823"]
+        t = ["VwGO § 167 Abs. S. 1, ZPO § 766 Abs. 1, ZPO § 795, AGB § 362 Abs. 1"]
+        r, _ = process_normchain(t, db)
+        assert r == ["VwGO § 167 Abs. S. 1", "ZPO § 766 Abs. 1", "ZPO § 795", "AGB § 362 Abs. 1"]
+        t = ["BGB §§ 133, 157;BGB § 611;BAT SR 2 l II; Änderungs-Tarifvertrag zum BAT § 2"]
+        r, _ = process_normchain(t, db)
+        assert r == ["BGB § 133", "BGB § 157", "BGB § 611", "BAT SR 2 l II", "Änderungs-Tarifvertrag zum BAT § 2"]
         # Known norms
         t4 = ["__norm12969__"]
         r, n = process_normchain(t4, db)
