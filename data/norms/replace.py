@@ -10,15 +10,22 @@ import requests
 from functools import reduce
 from enum import Enum
 
-from .normdb import NormDatabase
+from tqdm import tqdm
+
+from .normdb import NormDatabase, NormDBStub
 
 USER_INFO = dict()
 
 NORM_PATH = Path("..")/"HiWi"/"Normen"
+DATA_PATH = Path("data")/"dataset"
 
 # Used for the custom matching method; all tokens in IGNORE_LIST will be jumped over and no norm cut will be made
-IGNORE_LIST = ["Abs", "Satz"]
+IGNORE_LIST = ("abs", "satz", "nr")
+NEW_IGNORES = set()
 NORM_SET = set()
+
+# Flag used to enable writing the verdicts back to disk
+ENABLE_REWRITING = False
 
 # States used for parsing the normchain
 class NormState(Enum):
@@ -31,8 +38,16 @@ class SearchMode(Enum):
     UNKNOWN = -1
     NORM = 1
 
-def split(sentences: List[str]) -> Iterable[List[str]]:
-    return map(lambda sentence: list(filter(lambda tok: tok is not None and len(tok) > 0, re.split(r"[\s]+", sentence))), sentences)
+def annotate_verdicts():
+    """ Will go through all the verdicts and tries to reannotate them. Based on ENABLE_REWRITING they are commited back to disk. """
+    normDB = NormDatabase(Path("data")/"norms"/"norms.db") if ENABLE_REWRITING else NormDBStub()
+    for verdict in tqdm(os.listdir(DATA_PATH)[:10], desc="Processing"):
+        process_verdict(DATA_PATH/verdict, normDB)
+
+    ignored = sorted(list(NEW_IGNORES))
+    with io.open(Path("data")/"norms"/"norms_ignored_words.txt", "a+", encoding="utf-8") as f:
+        for token in ignored:
+            f.write(token+"\n")
 
 def process_verdict(filepath: Path, normDB: NormDatabase):
     """ Will load the verdict and look through its 
@@ -43,7 +58,7 @@ def process_verdict(filepath: Path, normDB: NormDatabase):
         and replace norms found in them. guiding principles, facts, reasoning will be handled by the same code.
         normchain will have its own code
         
-        Will rewrite the verdict to the path, if any changes have happened.
+        Will rewrite the verdict to the path, if any changes have happened (and ENABLE_REWRITING is set)
     """
     # We could move this one layer up, but we do not want to spill the implementation details there
     setup_norm_set()
@@ -79,15 +94,9 @@ def process_verdict(filepath: Path, normDB: NormDatabase):
     else:
         verdict["norms"].update(norms)
 
-    __write_verdict__(verdict, filepath)
-
-
-def setup_norm_set():
-    """ Gets all the known abbreviation for known norms from the file names of the norm dataset """
-    global NORM_SET
-    if len(NORM_SET) == 0:
-        for file in os.listdir(NORM_PATH):
-            NORM_SET.add(file[:len(".json")])
+    if ENABLE_REWRITING:
+        raise ValueError("Should not write right now.")
+        __write_verdict__(verdict, filepath)
     
 def process_segment(segment: List[str], normDB: NormDatabase) -> Tuple[List[str], Dict[str, str]]:
     """ Go through all the sentences in the segment and check, if they do contain any norms which were not found so far 
@@ -113,24 +122,16 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
     norms = {}
     current_norm = None
     state = SearchMode.UNKNOWN
-    PATIENCE_START = 2
-    patience = PATIENCE_START
     for token in split:
         if state == SearchMode.UNKNOWN:
             if token in NORM_SET or "§" in token:
                 current_norm = [token]
                 state = SearchMode.NORM
-                patience = PATIENCE_START
             else:
                 pieces.append(token)
         else:
             # We need to be here a bit more precise, especially with the patience, i.e. when do we stop if we reduced the patience?
-            if token.isnumeric() or token in IGNORE_LIST or token in NORM_SET :
-                current_norm.append(token)
-            elif patience > 0:
-                # We might want to introduce some patience value, s.t. we are more robust against wrongly written tokens
-                # I.e. we can look two tokens into the future
-                patience -= 1
+            if token.isnumeric() or token in NORM_SET or is_paragraph_token(token):
                 current_norm.append(token)
             else:
                 norm = " ".join(current_norm)
@@ -172,82 +173,23 @@ def process_normchain(chain: List[str], normDB: NormDatabase) -> Tuple[List[str]
                 if state == NormState.UNKNOWN:
                     assert len(current_paragraphs) == 0
                     assert current_norm is None
-
-                    if "§" not in split:
-                        processed_norms.append(split)
-                    if split.startswith("§§"):
-                        current_paragraphs = [split[2:].strip()]
-                        state = NormState.DOUBLE
-                    elif split.split(" ")[0].isalnum():
-                        # Now we have identified that we are in a norm with "§" + it starts with a word 
-                        # We now will identify the norm (= everything before the "§") + its paragraphs
-                        paragraph_split = split.split("§")
-                        assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(paragraph_split)
-                        current_norm = paragraph_split[0].strip()
-                        current_paragraphs = [paragraph_split[1].strip()]
-                        state = NormState.SINGLE
-                    else:
-                        raise ValueError("Starting norm does not follow known format: "+str(split))
-
+                    current_paragraphs, current_norm, state = process_state_unknown(split, norm, processed_norms)
                 elif state == NormState.DOUBLE:
                     # We will end this state, if we find a split which does contain a "§"
                     assert len(current_paragraphs) > 0
-                    assert current_norm is None
-                    if "§" in split:
-                        # Heuristic: The last word in the last current_paragraph is the norm
-                        current_norm = current_paragraphs[-1].split(" ")[-1]
-                        current_paragraphs[-1] = " ".join(current_paragraphs[-1].split(" ")[:-1])
-                        processed_norms += finalize_norm(current_norm, current_paragraphs)
-
-                        # We now differentiate between the different cases as above -> because we are starting a new norm
-                        if split.startswith("§§"):
-                            current_paragraphs = [split[2:].strip()]
-                            current_norm = None
-                            state = NormState.DOUBLE
-                        elif split.split(" ")[0].isalnum():
-                            paragraph_split = split.split("§")
-                            assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(paragraph_split)
-                            current_norm = paragraph_split[0].strip()
-                            current_paragraphs = [paragraph_split[1].strip()]
-                            state = NormState.SINGLE
-                        else:
-                            raise ValueError("Norm does not follow known format: "+str(split))
-                    else:
-                        current_paragraphs.append(split)
+                    current_paragraphs, current_norm, state = process_state_double(split, norm, processed_norms, current_paragraphs, current_norm)
                 elif state == NormState.SINGLE:
                     assert len(current_paragraphs) > 0
                     assert current_norm is not None
-                    if "§§" in split:
-                        processed_norms += finalize_norm(current_norm, current_paragraphs)
-                        if split.startswith("§§"):
-                            current_paragraphs = [split[2:].strip()]
-                            current_norm = None
-                            state = NormState.DOUBLE
-                        else:
-                            raise ValueError("Norm does not follow known format: "+str(split))
-                    elif "§" in split:
-                        # Check if we are beginning a new norm
-                        # ATTENTION: we can only do this differentiation, because we assume that in NormState.SINGLE every individual norm has its own "§"
-                        if split.split(" ")[0].isalnum():
-                            processed_norms += finalize_norm(current_norm, current_paragraphs)
-                            
-                            paragraph_split = split.split("§")
-                            assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(paragraph_split)
-                            current_norm = paragraph_split[0].strip()
-                            current_paragraphs = [paragraph_split[1].strip()]
-                            state = NormState.SINGLE
-                        else:
-                            # We want to remove everything before the first "§"
-                            split = list(map(lambda entry: entry.strip(), split.split("§")[1:]))
-                            current_paragraphs += split
-                    else:
-                        current_paragraphs.append(split)
+                    current_paragraphs, current_norm, state = process_state_single(split, norm, processed_norms, current_paragraphs, current_norm)
 
+            print(current_norm, current_paragraphs)
             # Include all remaining results from current_paragraphs + current_norm
             if len(current_paragraphs) > 0:
                 if state == NormState.DOUBLE:
-                    current_norm = current_paragraphs[-1].split(" ")[-1]
-                    current_paragraphs[-1] = " ".join(current_paragraphs[-1].split(" ")[:-1])
+                    if current_norm is None:
+                        current_norm = current_paragraphs[-1].split(" ")[-1].strip()
+                        current_paragraphs[-1] = " ".join(current_paragraphs[-1].split(" ")[:-1])
                 processed_norms += finalize_norm(current_norm, current_paragraphs)
 
     norm_dict = {}
@@ -255,6 +197,97 @@ def process_normchain(chain: List[str], normDB: NormDatabase) -> Tuple[List[str]
         placeholder = normDB.register_norm(norm)
         norm_dict[placeholder] = norm
     return processed_norms, norm_dict
+
+def process_state_unknown(split: str, norm: str, processed_norms: List[str]) -> Tuple[List[str], str, NormState]:
+    """ State transition, if we are beginning with processing the normchain """
+    if "§" not in split:
+        processed_norms.append(split)
+        return [], None, NormState.UNKNOWN
+    else:
+        current_paragraphs, current_norm, state = new_norm_state_transition(split, norm)
+        return current_paragraphs, current_norm, state
+
+def process_state_double(split: str, norm: str, processed_norms: List[str], current_paragraphs: List[str], current_norm: str) -> Tuple[List[str], str, NormState]:
+    """ State transition, if we are processing a norm with multiple paragraphs i.e. with §§ """
+    if "§" in split:
+        # Heuristic: The last word in the last current_paragraph is the norm
+        if current_norm is None:
+            current_norm = current_paragraphs[-1].split(" ")[-1].strip()
+            current_paragraphs[-1] = " ".join(current_paragraphs[-1].split(" ")[:-1])
+        processed_norms += finalize_norm(current_norm, current_paragraphs)
+
+        # We now differentiate between the different cases as above -> because we are starting a new norm
+        current_paragraphs, current_norm, state = new_norm_state_transition(split, norm)
+        return current_paragraphs, current_norm, state
+    else:
+        current_paragraphs.append(split)
+        return current_paragraphs, current_norm, NormState.DOUBLE
+
+def process_state_single(split: str, norm: str, processed_norms: List[str], current_paragraphs: List[str], current_norm: str) -> Tuple[List[str], str, NormState]:
+    if "§§" in split:
+        processed_norms += finalize_norm(current_norm, current_paragraphs)
+        if split.startswith("§§"):
+            current_paragraphs = [split[2:].strip()]
+            current_norm = None
+            state = NormState.DOUBLE
+        else:
+            raise ValueError("Norm does not follow known format: "+str(split))
+    elif "§" in split:
+        # Check if we are beginning a new norm
+        # ATTENTION: we can only do this differentiation, because we assume that in NormState.SINGLE every individual norm has its own "§"
+        if split.split(" ")[0].isalnum():
+            processed_norms += finalize_norm(current_norm, current_paragraphs)
+            
+            paragraph_split = split.split("§")
+            assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(paragraph_split)
+            current_norm = paragraph_split[0].strip()
+            current_paragraphs = [paragraph_split[1].strip()]
+        else:
+            # We want to remove everything before the first "§"
+            split = list(map(lambda entry: entry.strip(), split.split("§")[1:]))
+            current_paragraphs += split
+        state = NormState.SINGLE
+    else:
+        current_paragraphs.append(split)
+        state = NormState.SINGLE
+    
+    return current_paragraphs, current_norm, state
+
+def new_norm_state_transition(split, norm) -> Tuple[List[str], str, NormState]:
+    # We now differentiate between the different cases as above -> because we are starting a new norm
+    if split.startswith("§§"):
+        current_paragraphs = [split[2:].strip()]
+        current_norm = None
+        state = NormState.DOUBLE
+    elif "§§" in split:
+        subsplit = split.split("§§")
+        assert len(subsplit) == 2, "Norm does not follow the standard format: " +str(split)+ " from "+norm
+        current_paragraphs = [subsplit[1].strip()]
+        current_norm = subsplit[0].strip()
+        state = NormState.DOUBLE
+    elif split.split(" ")[0].isalnum():
+        # Now we have identified that we are in a norm with "§" + it starts with a word 
+        # We now will identify the norm (= everything before the "§") + its paragraphs
+        paragraph_split = split.split("§")
+        assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(split)+ " from "+norm
+        current_norm = paragraph_split[0].strip()
+        current_paragraphs = [paragraph_split[1].strip()]
+        state = NormState.SINGLE
+    else:
+        raise ValueError("Norm does not follow known format: "+str(split))
+
+    return current_paragraphs, current_norm, state
+
+def is_paragraph_token(token: str):
+    """ Checks if the token is starting with any of the words defined in IGNORE_LIST. 
+        As there are many possible writing styles for referencing a specific passage in a norm,
+        we need to write a robust function for filtering them.
+    """
+    if token.lower().startswith(IGNORE_LIST):
+        return True
+    else:
+        NEW_IGNORES.add(token)
+        return False
 
 def finalize_norm(norm: str, paragraphs: List[str]) -> List[str]:
     """ Will replicate norm to the paragraphs s.t. each paragraph has the norm information """
@@ -280,10 +313,24 @@ def annotate_publisher(sentences: List[str]):
         annotated_sentences.append(r.content.decode("utf-8"))
     return annotated_sentences
 
+def split(sentences: List[str]) -> Iterable[List[str]]:
+    return map(lambda sentence: list(filter(lambda tok: tok is not None and len(tok) > 0, re.split(r"[\s]+", sentence))), sentences)
+
+def setup_norm_set():
+    """ Gets all the known abbreviation for known norms from the file names of the norm dataset """
+    global NORM_SET
+    if len(NORM_SET) == 0:
+        for file in os.listdir(NORM_PATH):
+            NORM_SET.add(file[:len(".json")])
+
 def __load_verdict__(path: Path):
     with io.open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def __write_verdict__(dic: Dict, save_path: Path):
+    raise ValueError("Should not write right now.")
     with io.open(save_path, "w", encoding="utf-8") as f:
         json.dump(dic, f, sort_keys=False, indent=4, ensure_ascii=False)
+
+if __name__ == "__main__":
+    annotate_verdicts()

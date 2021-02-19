@@ -57,6 +57,9 @@ class Test:
         t = ["§§ 46, 46a BRAO, SUrlV § 13 Abs. 1, SUrlV § 15"]
         r, _ = process_normchain(t, db)
         assert r == ["BRAO § 46", "BRAO § 46a", "SUrlV § 13 Abs. 1", "SUrlV § 15"]
+        t = ["BGB §§ 434, 437, 440, 323, 278, 823"]
+        r, _ = process_normchain(t, db)
+        assert r == ["BGB § 434", "BGB § 437", "BGB § 440", "BGB § 323", "BGB § 278", "BGB § 823"]
         # Known norms
         t4 = ["__norm12969__"]
         r, n = process_normchain(t4, db)
