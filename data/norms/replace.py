@@ -10,6 +10,7 @@ import requests
 from functools import reduce
 from enum import Enum
 import string
+from collections import Counter
 
 from tqdm import tqdm
 
@@ -22,11 +23,15 @@ USER_INFO = dict()
 NORM_PATH = Path("..")/"HiWi"/"Normen"
 DATA_PATH = Path("data")/"dataset"
 
-# Used for the custom matching method; all tokens in IGNORE_LIST will be jumped over and no norm cut will be made
-IGNORE_LIST = ("abs.", "satz", "nr.")
+# Used for the custom matching method; all tokens in SEPARATOR_LIST will be jumped over and no norm cut will be made
+SEPARATOR_LIST = ()
 LETTERS = string.ascii_letters+"äÄüÜöÖß"
 LETTERS_PLUS = LETTERS+"-/"
-NEW_IGNORES = set()
+NUMBERS = string.digits
+NUMBERS_PLUS = NUMBERS+"."
+ABBREV_LETTER = LETTERS+"."
+# Counter used to identify common tokens around §-sign
+NEW_IGNORES = Counter()
 NORM_SET = set()
 
 # Flag used to enable writing the verdicts back to disk
@@ -50,10 +55,11 @@ def annotate_verdicts():
     for verdict in tqdm(os.listdir(DATA_PATH), desc="Processing"):
         process_verdict(DATA_PATH/verdict, normDB)
 
-    ignored = sorted(list(NEW_IGNORES))
-    with io.open(Path("data")/"norms"/"norms_ignored_words.txt", "a+", encoding="utf-8") as f:
-        for token in ignored:
-            f.write(token+"\n")
+    # Code was used to identify which tokens are commonly used around §-signs
+    """with io.open(Path("data")/"norms"/"norms_ignored_words.txt", "a+", encoding="utf-8") as f:
+        for token in NEW_IGNORES.most_common():
+            if all(c in ABBREV_LETTER for c in token[0]):
+                f.write(str(token)+"\n")"""
 
 def process_verdict(filepath: Path, normDB: NormDatabase):
     """ Will load the verdict and look through its 
@@ -66,8 +72,6 @@ def process_verdict(filepath: Path, normDB: NormDatabase):
         
         Will rewrite the verdict to the path, if any changes have happened (and ENABLE_REWRITING is set)
     """
-    # We could move this one layer up, but we do not want to spill the implementation details there
-    setup_norm_set()
     verdict = __load_verdict__(filepath)
     norms = dict()
     guid_princ_0, n = process_segment(verdict["guiding_principle"][0], normDB)
@@ -127,6 +131,13 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
         This algorithm will only find a norm, if it is in the norm dataset & its abbreviation is exactly matched (this might not hold for all norms!)
         This limitation is important, as those are the only norms we can match towards a specific text anyways.
     """
+    if len(SEPARATOR_LIST) == 0:
+        read_separator_list()
+    assert len(SEPARATOR_LIST) > 0
+    if len(NORM_SET) == 0:
+        setup_norm_set()
+    assert len(NORM_SET) > 0
+
     split = sentence.split(" ")
     pieces = []
     norms = {}
@@ -141,7 +152,7 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
                 pieces.append(token)
         else:
             # We need to be here a bit more precise, especially with the patience, i.e. when do we stop if we reduced the patience?
-            if token.isnumeric() or token in NORM_SET or is_paragraph_token(token):
+            if all(c in NUMBERS_PLUS for c in token) or token in NORM_SET or is_paragraph_token(token):
                 current_norm.append(token)
             else:
                 norm = " ".join(current_norm)
@@ -150,7 +161,13 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
                 current_norm = None
 
                 pieces.append(placeholder)
-                state = SearchMode.UNKNOWN
+                
+                if token in NORM_SET or "§" in token:
+                    current_norm = [token]
+                    state = SearchMode.NORM
+                else:
+                    pieces.append(token)
+                    state = SearchMode.UNKNOWN
 
     finalized_sentence = " ".join(pieces)
     return finalized_sentence, norms
@@ -370,16 +387,17 @@ def finalize_current_norm(current_norm: str, current_paragraphs: List[str]) -> T
     return current_norm, current_paragraphs
 
 def is_paragraph_token(token: str):
-    """ Checks if the token is starting with any of the words defined in IGNORE_LIST. 
+    """ Checks if the token is starting with any of the words defined in SEPARATOR_LIST. 
         As there are many possible writing styles for referencing a specific passage in a norm,
         we need to write a robust function for filtering them.
     """
-    # TODO Exact matching for Absatz, Satz etc.
-    if token.lower().startswith(IGNORE_LIST):
+    return token.lower().startswith(SEPARATOR_LIST)
+    # Code used to collect all the tokens which are commonly found around §-signs
+    """if token.lower().startswith(SEPARATOR_LIST):
         return True
     else:
-        NEW_IGNORES.add(token)
-        return False
+        NEW_IGNORES.update([token])
+        return False"""
 
 def finalize_norm(norm: str, paragraphs: List[str]) -> List[str]:
     """ Will replicate norm to the paragraphs s.t. each paragraph has the norm information """
@@ -387,6 +405,14 @@ def finalize_norm(norm: str, paragraphs: List[str]) -> List[str]:
     for p in paragraphs:
         result.append(norm+" § "+p)
     return result
+
+def read_separator_list():
+    global SEPARATOR_LIST
+    seps = []
+    with io.open(Path("data")/"norms"/"norms_separator.txt", "r", encoding="utf-8") as f:
+        for l in f.readlines():
+            seps.append(l.lower().strip())
+    SEPARATOR_LIST = tuple(seps)
 
 def read_user_info(path: Path=Path("data")/"norms"/"config.ini"):
     global USER_INFO
@@ -413,7 +439,8 @@ def setup_norm_set():
     global NORM_SET
     if len(NORM_SET) == 0:
         for file in os.listdir(NORM_PATH):
-            NORM_SET.add(file[:len(".json")])
+            assert file.endswith(".json")
+            NORM_SET.add(file.replace(".json", ""))
 
 def __load_verdict__(path: Path):
     with io.open(path, "r", encoding="utf-8") as f:

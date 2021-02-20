@@ -111,3 +111,9 @@ class Test:
         sentence = "Zulassungsgrund nach §124 Abs.2 Nr.1 VwGO ist nicht hinreichend dargelegt"
         res, norms = process_sentence(sentence, db)
         assert res == "Zulassungsgrund nach __norm1__ ist nicht hinreichend dargelegt"
+        assert len(norms) == 1
+        assert norms["__norm1__"] == "§124 Abs.2 Nr.1 VwGO"
+        sentence = "Zulassungsgrund nach §124 Abs.2 Nr.1 ist nicht hinreichend dargelegt"
+        res, norms = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach __norm2__ ist nicht hinreichend dargelegt"
+
