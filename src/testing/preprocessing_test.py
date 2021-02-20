@@ -103,6 +103,9 @@ class TestPreprocessing:
         t = [["Wird", "2", "zu", "3?"]]
         res = [["Wird", "<num>", "zu", "<num>"]]
         assert list(replace_tokens(t)) == res
+        t = [["Wird", "2.I", "zu", "I.3"]]
+        res = [["Wird", "<num>", "zu", "<num>"]]
+        assert list(replace_tokens(t)) == res
         t = [["Frau", "...", "wird", "zu", "zwei", "Jahren", "Haft", "verurteilt."],
             ["Dies", "beruht", "auf", "__norm1__"]]
         res = [["Frau", "<anon>", "wird", "zu", "zwei", "Jahren", "Haft", "verurteilt."],
@@ -154,6 +157,60 @@ class TestPreprocessing:
         t = [
             "1. Wird eine Grunddienstbarkeit nach Teilung des dienenden Grundstücks an einem Teil gelöscht.",
             "2. Gegen die Eintragung des Widerspruchs kann mit dem Ziel, diesen zu löschen, unbeschränkte Beschwerde erhoben werden."
+        ]
+        res = [
+            ["wird", "eine", "grunddienstbarkeit", "nach", "teilung", "des", "dienenden", "grundstücks", "an", "einem", "teil", "gelöscht"],
+            ["gegen", "die", "eintragung", "des", "widerspruchs", "kann", "mit", "dem", "ziel", "diesen", "zu", "löschen", "unbeschränkte", "beschwerde", "erhoben", "werden"]
+        ]
+        assert list(process_segment(t)) == res
+        t = [
+            "A. Wird eine Grunddienstbarkeit nach Teilung des dienenden Grundstücks an einem Teil gelöscht.",
+            "B. Gegen die Eintragung des Widerspruchs kann mit dem Ziel, diesen zu löschen, unbeschränkte Beschwerde erhoben werden."
+        ]
+        res = [
+            ["wird", "eine", "grunddienstbarkeit", "nach", "teilung", "des", "dienenden", "grundstücks", "an", "einem", "teil", "gelöscht"],
+            ["gegen", "die", "eintragung", "des", "widerspruchs", "kann", "mit", "dem", "ziel", "diesen", "zu", "löschen", "unbeschränkte", "beschwerde", "erhoben", "werden"]
+        ]
+        assert list(process_segment(t)) == res
+        t = [
+            "1a Wird eine Grunddienstbarkeit nach Teilung des dienenden Grundstücks an einem Teil gelöscht.",
+            "1b Gegen die Eintragung des Widerspruchs kann mit dem Ziel, diesen zu löschen, unbeschränkte Beschwerde erhoben werden."
+        ]
+        res = [
+            ["wird", "eine", "grunddienstbarkeit", "nach", "teilung", "des", "dienenden", "grundstücks", "an", "einem", "teil", "gelöscht"],
+            ["gegen", "die", "eintragung", "des", "widerspruchs", "kann", "mit", "dem", "ziel", "diesen", "zu", "löschen", "unbeschränkte", "beschwerde", "erhoben", "werden"]
+        ]
+        assert list(process_segment(t)) == res
+        t = [
+            "A.Wird eine Grunddienstbarkeit nach Teilung des dienenden Grundstücks an einem Teil gelöscht.",
+            "B.Gegen die Eintragung des Widerspruchs kann mit dem Ziel, diesen zu löschen, unbeschränkte Beschwerde erhoben werden."
+        ]
+        res = [
+            ["wird", "eine", "grunddienstbarkeit", "nach", "teilung", "des", "dienenden", "grundstücks", "an", "einem", "teil", "gelöscht"],
+            ["gegen", "die", "eintragung", "des", "widerspruchs", "kann", "mit", "dem", "ziel", "diesen", "zu", "löschen", "unbeschränkte", "beschwerde", "erhoben", "werden"]
+        ]
+        assert list(process_segment(t)) == res
+        t = [
+            "I.1. Wird eine Grunddienstbarkeit nach Teilung des dienenden Grundstücks an einem Teil gelöscht.",
+            "II.A. Gegen die Eintragung des Widerspruchs kann mit dem Ziel, diesen zu löschen, unbeschränkte Beschwerde erhoben werden."
+        ]
+        res = [
+            ["wird", "eine", "grunddienstbarkeit", "nach", "teilung", "des", "dienenden", "grundstücks", "an", "einem", "teil", "gelöscht"],
+            ["gegen", "die", "eintragung", "des", "widerspruchs", "kann", "mit", "dem", "ziel", "diesen", "zu", "löschen", "unbeschränkte", "beschwerde", "erhoben", "werden"]
+        ]
+        assert list(process_segment(t)) == res
+        t = [
+            "I.1.Wird eine Grunddienstbarkeit nach Teilung des dienenden Grundstücks an einem Teil gelöscht.",
+            "II.A.Gegen die Eintragung des Widerspruchs kann mit dem Ziel, diesen zu löschen, unbeschränkte Beschwerde erhoben werden."
+        ]
+        res = [
+            ["wird", "eine", "grunddienstbarkeit", "nach", "teilung", "des", "dienenden", "grundstücks", "an", "einem", "teil", "gelöscht"],
+            ["gegen", "die", "eintragung", "des", "widerspruchs", "kann", "mit", "dem", "ziel", "diesen", "zu", "löschen", "unbeschränkte", "beschwerde", "erhoben", "werden"]
+        ]
+        assert list(process_segment(t)) == res
+        t = [
+            "1.I. Wird eine Grunddienstbarkeit nach Teilung des dienenden Grundstücks an einem Teil gelöscht.",
+            "1.II. Gegen die Eintragung des Widerspruchs kann mit dem Ziel, diesen zu löschen, unbeschränkte Beschwerde erhoben werden."
         ]
         res = [
             ["wird", "eine", "grunddienstbarkeit", "nach", "teilung", "des", "dienenden", "grundstücks", "an", "einem", "teil", "gelöscht"],

@@ -202,15 +202,17 @@ def replace_tokens(
     def replace_op(token: str) -> str:
         if token.startswith("__norm"):
             return "<norm>"
-        # TODO Minor Bug if there is a roman numeral combined with a number
-        elif not token[0].isalpha() and any(c.isdigit() for c in token):
-            # We have to do one minor distinction here: if the number ends with a ")", we have to include it as otherwise some text will be lost
+        # Look for the case, when roman numerals are combined with numbers; 
+        # this might lead to some strange cases, if some words starting with "V" or "I" are falsely concated with a number (e.g. "Industrie4.0" -> "<num>")
+        # -> the system could not find the corresponding word any way so this edge case does not really matter
+        elif (not token[0].isalpha() and any(c.isdigit() for c in token)) or (is_roman_enum(token[0]) and any(c.isdigit() for c in token)):
+            # We have to do one minor distinction here: if the number ends with a ")", we have to include it as otherwise some text will be lost due to the parentheses removal
             if token.endswith(")"):
                 return "<num>)"
             else:
                 return "<num>"
         # Do we really need to check all characters for "."? It should be sufficient to see if there are at least ".." in the word
-        elif len(token) >= 2 and (".." in token or "xx" in token or "##" in token):
+        elif len(token) >= 2 and (".." in token or "xx" in token or "##" in token or "…" in token):
             return "<anon>"
         else:
             return token
@@ -261,9 +263,9 @@ def finalize(
             start[0] = False
             return False
         elif start[0]:
-            start[0] = False
             # startswith as there are also 1a, etc. as enumeration tokens
             if token.startswith("<num>") or is_roman_enum(token) or is_alpha_enum(token):
+                # As there might be some followup enumeration, we will not set start[0] to False
                 return False
 
         start[0] = False
