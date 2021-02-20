@@ -173,7 +173,7 @@ def process_segment(
     #  - replace tokens containing numbers with <num>, anonymization (..., ) with <anon>, __normxyz__ with <norm>
     #  - remove every token inside of brackets (TODO do we want to do this across sentences?) + remove all special characters (potentially split token)
     #  (- utilize other form of tokenization)
-    #  - TODO finalize sentences in memory and remove all empty sentences + tokens + remove all enumerations at start of sentence
+    #  - finalize sentences in memory and remove all empty sentences + tokens + remove all enumerations at start of sentence
 
     tokenized_sentences = split(sentences, normalize)
     tokenized_sentences = replace_tokens(tokenized_sentences)
@@ -209,21 +209,23 @@ def replace_tokens(
                 return "<num>)"
             else:
                 return "<num>"
-        elif len(token) >= 2 and all(c=="." for c in token):
+        # Do we really need to check all characters for "."? It should be sufficient to see if there are at least ".." in the word
+        elif len(token) >= 2 and (".." in token or "xx" in token or "##" in token):
             return "<anon>"
         else:
             return token
 
-    # TODO list comprehension super costly -> replace_op costs a lot
+    # List comprehension super costly -> replace_op costs a lot
     return map(lambda sentence: [replace_op(token) for token in sentence if len(token) > 0], sentences)
 
 def remove_special_characters(
         sentences: Iterable[List[str]]
     ) -> Iterable[List[str]]:
     # - Remove all tokens inside of brackets
-    #  TODO currently we are not tracking across sentences boundaries; this might be necessary but will add some more computational overhead
+    #  -> currently we are not tracking across sentences boundaries; this might be necessary but will add some more computational overhead
     #  -> assumption is that there are not many cases where a parentheses was split into multiple parts
-    #  TODO check assumption that we only have "(...)" types of parentheses
+    #  -> there are cases where parentheses span across multiple lines, but we will not care about them, as they are not so important for modeling
+    #     the content of a verdict. Some minor difficulties (and this is not happening often) are okay.
     # - Remove all special characters
     
     def filter_tokens(tokens: List[str]) -> List[str]:

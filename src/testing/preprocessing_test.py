@@ -114,6 +114,14 @@ class TestPreprocessing:
         t = [["Lass", "uns", "..", "ein", "paar", "Daten:", "12.3.2020"]]
         res = [["Lass", "uns", "<anon>", "ein", "paar", "Daten:", "<num>"]]
         assert list(replace_tokens(t)) == res
+        # Some more <anon> cases
+        t = [["Herr", "Rxxx", "hat", "folgende", "Vorstrafe."]]
+        res = [["Herr", "<anon>", "hat", "folgende", "Vorstrafe."]]
+        assert list(replace_tokens(t)) == res
+        t = [["Herr", "###", "hat", "folgende", "Vorstrafe."]]
+        res = [["Herr", "<anon>", "hat", "folgende", "Vorstrafe."]]
+        assert list(replace_tokens(t)) == res
+
 
     def test_split(self):
         t = ["Hallo Welt, die"]
