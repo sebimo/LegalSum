@@ -23,7 +23,7 @@ NORM_PATH = Path("..")/"HiWi"/"Normen"
 DATA_PATH = Path("data")/"dataset"
 
 # Used for the custom matching method; all tokens in IGNORE_LIST will be jumped over and no norm cut will be made
-IGNORE_LIST = ("abs", "satz", "nr")
+IGNORE_LIST = ("abs.", "satz", "nr.")
 LETTERS = string.ascii_letters+"äÄüÜöÖß"
 LETTERS_PLUS = LETTERS+"-/"
 NEW_IGNORES = set()
@@ -36,6 +36,7 @@ ENABLE_REWRITING = False
 class NormState(Enum):
     DOUBLE = 0
     SINGLE = 1
+    ART = 2
     UNKNOWN = -1
 
 # States used for searching through the individual sentences
@@ -46,7 +47,7 @@ class SearchMode(Enum):
 def annotate_verdicts():
     """ Will go through all the verdicts and tries to reannotate them. Based on ENABLE_REWRITING they are commited back to disk. """
     normDB = NormDatabase(Path("data")/"norms"/"norms.db") if ENABLE_REWRITING else NormDBStub()
-    for verdict in tqdm(os.listdir(DATA_PATH)[4000:], desc="Processing"):
+    for verdict in tqdm(os.listdir(DATA_PATH), desc="Processing"):
         process_verdict(DATA_PATH/verdict, normDB)
 
     ignored = sorted(list(NEW_IGNORES))
@@ -163,14 +164,25 @@ def process_normchain(chain: List[str], normDB: NormDatabase) -> Tuple[List[str]
         return (chain, {})
     
     if len(chain) == 1:
+        if chain[0].startswith("=="):
+            chain[0] = chain[0][len("=="):].strip()
         if chain[0].startswith("Normen:"):
-            chain[0] = chain[0][len("Normen:")].strip()
+            chain[0] = chain[0][len("Normen:"):].strip()
         elif chain[0].startswith("Gesetz:"):
-            chain[0] = chain[0][len("Gesetz:")].strip()
+            chain[0] = chain[0][len("Gesetz:"):].strip()
+        elif chain[0].startswith("Gesetze:"):
+            chain[0] = chain[0][len("Gesetze:"):].strip()
+        elif chain[0].startswith("Vorschriften:"):
+            chain[0] = chain[0][len("Vorschriften:"):].strip()
 
     # Split up based on ";" -> those are for certain independent norms
     norms = map(lambda entry: list(map(lambda norm: norm.strip(), entry.split(";"))), chain)
     norms = reduce(lambda x,y: x+y, norms, [])
+    split_norms = []
+    for n in norms:
+        for s in n.split("i.V.m."):
+            split_norms.append(s.replace("§ §", "§§"))
+    norms = split_norms
 
     processed_norms = []
     for norm in norms:
@@ -184,12 +196,19 @@ def process_normchain(chain: List[str], normDB: NormDatabase) -> Tuple[List[str]
             current_norm = None
             state = NormState.UNKNOWN
             for split in norm_split:
+                assert state == NormState.UNKNOWN or (current_norm is not None or len(current_paragraphs) > 0)
                 split = split.strip()
-                if norm.startswith("Art.") and norm.endswith("EGBGB"):
-                    processed_norms.append(norm)
-                    assert len(current_paragraphs) == 0
+                # So this is the most problematic case, as it literally can have any writing style + 100% correctly parsing is not really feasible here due to the time constraints
+                # We will simplify this case a bit and include all tokens between article and the next norm reference
+                if state == NormState.ART or split.startswith("Art."):
+                    # In the first runthrough we need to clean the norm buffer
+                    if state != NormState.ART and len(current_paragraphs) > 0:
+                        current_norm, current_paragraphs = finalize_current_norm(current_norm, current_paragraphs)
+                        processed_norms += finalize_norm(current_norm, current_paragraphs)
+                        current_norm = None
+                        current_paragraphs = []
                     assert current_norm is None
-                    state = NormState.UNKNOWN
+                    current_paragraphs, current_norm, state = process_state_art(split, norm, processed_norms, current_paragraphs, current_norm)
                 elif state == NormState.UNKNOWN:
                     assert len(current_paragraphs) == 0
                     assert current_norm is None
@@ -204,8 +223,11 @@ def process_normchain(chain: List[str], normDB: NormDatabase) -> Tuple[List[str]
 
             # Include all remaining results from current_paragraphs + current_norm
             if len(current_paragraphs) > 0:
-                current_norm, current_paragraphs = finalize_current_norm(current_norm, current_paragraphs)
-                processed_norms += finalize_norm(current_norm, current_paragraphs)
+                if state == NormState.ART:
+                    processed_norms.append(", ".join(current_paragraphs))
+                else:
+                    current_norm, current_paragraphs = finalize_current_norm(current_norm, current_paragraphs)
+                    processed_norms += finalize_norm(current_norm, current_paragraphs)
 
     norm_dict = {}
     for norm in processed_norms:
@@ -219,7 +241,7 @@ def process_state_unknown(split: str, norm: str, processed_norms: List[str]) -> 
         processed_norms.append(split)
         return [], None, NormState.UNKNOWN
     else:
-        current_paragraphs, current_norm, state = new_norm_state_transition(split, norm)
+        current_paragraphs, current_norm, state = new_norm_state_transition(split, norm, processed_norms)
         return current_paragraphs, current_norm, state
 
 def process_state_double(split: str, norm: str, processed_norms: List[str], current_paragraphs: List[str], current_norm: str) -> Tuple[List[str], str, NormState]:
@@ -230,7 +252,7 @@ def process_state_double(split: str, norm: str, processed_norms: List[str], curr
         processed_norms += finalize_norm(current_norm, current_paragraphs)
 
         # We now differentiate between the different cases as above -> because we are starting a new norm
-        current_paragraphs, current_norm, state = new_norm_state_transition(split, norm)
+        current_paragraphs, current_norm, state = new_norm_state_transition(split, norm, processed_norms)
         return current_paragraphs, current_norm, state
     else:
         current_paragraphs.append(split)
@@ -260,18 +282,43 @@ def process_state_single(split: str, norm: str, processed_norms: List[str], curr
             assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(paragraph_split)
             current_norm = paragraph_split[0].strip()
             current_paragraphs = [paragraph_split[1].strip()]
+            state = NormState.SINGLE
+        elif current_norm is None and not split.split(" ")[-1].isnumeric():
+            current_paragraphs.append(split.replace("§", "").strip())
+            current_norm, current_paragraphs = finalize_current_norm(current_norm, current_paragraphs)
+            processed_norms += finalize_norm(current_norm, current_paragraphs)
+
+            current_norm = None
+            current_paragraphs = []
+            state = NormState.UNKNOWN
         else:
             # We want to remove everything before the first "§"
             split = list(map(lambda entry: entry.strip(), split.split("§")[1:]))
             current_paragraphs += split
-        state = NormState.SINGLE
+            state = NormState.SINGLE
     else:
         current_paragraphs.append(split)
         state = NormState.SINGLE
     
     return current_paragraphs, current_norm, state
 
-def new_norm_state_transition(split, norm) -> Tuple[List[str], str, NormState]:
+def process_state_art(split: str, norm: str, processed_norms: List[str], current_paragraphs: List[str], current_norm: str) -> Tuple[List[str], str, NormState]:
+    """ State transition, if we are currently processing an "Art. xxx NORM" -> try to find a norm (any alpha token) """
+    subsplit = split.split(" ")
+    if subsplit[-1].isnumeric():
+        current_paragraphs.append(split)
+        state = NormState.ART
+    # There might be the more precise elif, but we will just assume that everything that is not a number is a norm
+    else:
+        # We have found a norm -> this only works as all norms are written as "DESCRIPTOR NUM (SUBDESCRIPTOR NUM)* NORM"
+        current_paragraphs.append(split)
+        processed_norms.append(", ".join(current_paragraphs))
+        current_paragraphs = []
+        current_norm = None
+        state = NormState.UNKNOWN
+    return current_paragraphs, current_norm, state
+
+def new_norm_state_transition(split: str, norm: str, processed_norms: List[str]) -> Tuple[List[str], str, NormState]:
     # We now differentiate between the different cases as above -> because we are starting a new norm
     if split.startswith("§§"):
         current_paragraphs = [split[2:].strip()]
@@ -286,9 +333,19 @@ def new_norm_state_transition(split, norm) -> Tuple[List[str], str, NormState]:
     elif split.startswith("§"):
         paragraph_split = split.split("§")
         assert len(paragraph_split) == 2, "Norm does not follow the standard format: " +str(split)+ " from "+norm
-        current_norm = None
-        current_paragraphs = [paragraph_split[1].strip()]
-        state = NormState.SINGLE
+        # Check if the current norm is finished or not
+        if not split.split(" ")[-1].isnumeric():
+            split = split.replace("§ ", "")
+            subsplit = list(filter(lambda s: len(s) > 0, split.split(" ")))
+            processed_norms += finalize_norm(subsplit[-1], [" ".join(subsplit[:-1])])
+            
+            current_norm = None
+            current_paragraphs = []
+            state = NormState.UNKNOWN
+        else:
+            current_norm = None
+            current_paragraphs = [paragraph_split[1].strip()]
+            state = NormState.SINGLE
     # It depends on the implementation of isalnum(), if we want to keep it or just use the second part 
     # (i.e. it might be faster this way, instead of streaming over all characters); For now it stays here
     elif split.split(" ")[0].isalnum() or all(c in LETTERS_PLUS for c in split.split(" ")[0]):
@@ -317,6 +374,7 @@ def is_paragraph_token(token: str):
         As there are many possible writing styles for referencing a specific passage in a norm,
         we need to write a robust function for filtering them.
     """
+    # TODO Exact matching for Absatz, Satz etc.
     if token.lower().startswith(IGNORE_LIST):
         return True
     else:

@@ -74,6 +74,22 @@ class Test:
         t = ["BGB §§ 133, 157;BGB § 611;BAT SR 2 l II; Änderungs-Tarifvertrag zum BAT § 2"]
         r, _ = process_normchain(t, db)
         assert r == ["BGB § 133", "BGB § 157", "BGB § 611", "BAT SR 2 l II", "Änderungs-Tarifvertrag zum BAT § 2"]
+        t = ["§§ 242, 355, 495 BGB, Art. 247 § 6 Abs. 2, 9 Abs. 1 EGBGB"]
+        r, _ = process_normchain(t, db)
+        # One of the parsing edge cases which would be to difficult to handle all the cases due to time constraints
+        assert r == ["BGB § 242", "BGB § 355", "BGB § 495", "Art. 247 § 6 Abs. 2, 9 Abs. 1 EGBGB"]
+        t = ["StVO §§ 37 Abs. 2, 49"]
+        r, _ = process_normchain(t, db)
+        assert r == ["StVO § 37 Abs. 2", "StVO § 49"]
+        t = ["§§ 242, 355, 495 BGB, Art. 247 § 6 Abs. 2, 9 Abs. 1 EGBGB, GG § 20"]
+        r, _ = process_normchain(t, db)
+        assert r == ["BGB § 242", "BGB § 355", "BGB § 495", "Art. 247 § 6 Abs. 2, 9 Abs. 1 EGBGB", "GG § 20"]
+        t = ["GKG §§ 50, 54, § 58 Abs. 2 InsO; § 34 Abs. 1, § 99 ZPO"]
+        r, _ = process_normchain(t, db)
+        assert r == ["GKG § 50", "GKG § 54", "InsO § 58 Abs. 2", "ZPO § 34 Abs. 1", "ZPO § 99"]
+        t = ["§ 266 StGB, § 7 d SGB"]
+        r, _ = process_normchain(t, db)
+        assert r == ["StGB § 266", "SGB § 7 d"]
         # Known norms
         t4 = ["__norm12969__"]
         r, n = process_normchain(t4, db)
