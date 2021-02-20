@@ -116,4 +116,19 @@ class Test:
         sentence = "Zulassungsgrund nach §124 Abs.2 Nr.1 ist nicht hinreichend dargelegt"
         res, norms = process_sentence(sentence, db)
         assert res == "Zulassungsgrund nach __norm2__ ist nicht hinreichend dargelegt"
+        # Multi-Norms -> those will be replaced with one unique identifier, as we only want to filer them from the text
+        sentence = "Zulassungsgrund nach § 124 BGB, § 125 ZPO"
+        res, _ = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach __norm3__"
+        # Check for presegmented cases
+        sentence = "Zulassungsgrund nach § __norm123__"
+        res, _ = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach § __norm123__"
+        # Check for single characters and numbers
+        sentence = "Zulassungsgrund nach § 1 Abs. A b 23 GG"
+        res, _ = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach __norm4__"
+        sentence = "Zulassungsgrund nach § 1 Abs. 1a 23 GG"
+        res, _ = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach __norm5__"
 

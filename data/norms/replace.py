@@ -141,33 +141,47 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
     split = sentence.split(" ")
     pieces = []
     norms = {}
-    current_norm = None
+    current_norm = []
     state = SearchMode.UNKNOWN
     for token in split:
+        cleaned_token = "".join(filter(str.isalpha, token.lower()))
         if state == SearchMode.UNKNOWN:
-            if token in NORM_SET or "§" in token:
+            if cleaned_token in NORM_SET or "§" in token:
                 current_norm = [token]
                 state = SearchMode.NORM
             else:
                 pieces.append(token)
         else:
+            assert len(current_norm) >= 1
             # We need to be here a bit more precise, especially with the patience, i.e. when do we stop if we reduced the patience?
-            if all(c in NUMBERS_PLUS for c in token) or token in NORM_SET or is_paragraph_token(token):
+            if all(c in NUMBERS_PLUS for c in token) or cleaned_token in NORM_SET or is_paragraph_token(token):
                 current_norm.append(token)
             else:
-                norm = " ".join(current_norm)
-                placeholder = normDB.register_norm(norm)
-                norms[placeholder] = norm
-                current_norm = None
+                if len(current_norm) > 1 or "§" not in current_norm[0]: 
+                    norm = " ".join(current_norm)
+                    placeholder = normDB.register_norm(norm)
+                    norms[placeholder] = norm
+                    current_norm = []
 
-                pieces.append(placeholder)
-                
-                if token in NORM_SET or "§" in token:
+                    pieces.append(placeholder)
+                else:
+                    for p in current_norm:
+                        pieces.append(p)
+                    current_norm = []
+
+                if cleaned_token in NORM_SET or "§" in token:
                     current_norm = [token]
                     state = SearchMode.NORM
                 else:
                     pieces.append(token)
                     state = SearchMode.UNKNOWN
+
+    if len(current_norm) > 0:
+        norm = " ".join(current_norm)
+        placeholder = normDB.register_norm(norm)
+        norms[placeholder] = norm
+        current_norm = None
+        pieces.append(placeholder)
 
     finalized_sentence = " ".join(pieces)
     return finalized_sentence, norms
@@ -391,7 +405,8 @@ def is_paragraph_token(token: str):
         As there are many possible writing styles for referencing a specific passage in a norm,
         we need to write a robust function for filtering them.
     """
-    return token.lower().startswith(SEPARATOR_LIST)
+    paragraph_token = token.lower().startswith(SEPARATOR_LIST) or len(token) == 1 or token[0].isnumeric()
+    return paragraph_token
     # Code used to collect all the tokens which are commonly found around §-signs
     """if token.lower().startswith(SEPARATOR_LIST):
         return True
@@ -440,7 +455,7 @@ def setup_norm_set():
     if len(NORM_SET) == 0:
         for file in os.listdir(NORM_PATH):
             assert file.endswith(".json")
-            NORM_SET.add(file.replace(".json", ""))
+            NORM_SET.add(file.replace(".json", "").lower())
 
 def __load_verdict__(path: Path):
     with io.open(path, "r", encoding="utf-8") as f:
