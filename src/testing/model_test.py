@@ -3,7 +3,7 @@ import torchtest
 import torch
 from torch.nn import Embedding
 
-from ..model import HierarchicalEncoder, RNNEncoder
+from ..model import HierarchicalEncoder, RNNEncoder, Attention, AttentionType
 
 class TestHierarchicalEncoder:
 
@@ -28,40 +28,6 @@ class TestHierarchicalEncoder:
                 batch[s][t] = torch.randint(low=0, high=self.n_tokens, size=(1,))
 
         return batch
-
-    def test_token_weights_shape(self):
-        batch = self.setup_batch()
-        output = self.model.__get_token_weights__(batch)
-        assert len(output.shape) == 3
-        o_s, o_t, o_e = output.shape
-        assert o_s == self.max_sent
-        assert o_t == self.max_token
-        assert o_e == 1
-
-    def test_token_weights_softmax(self):
-        batch = self.setup_batch()
-        output = self.model.__get_token_weights__(batch)
-        weight_sum = torch.sum(output, dim=-1)
-        for i in range(self.max_token):
-            assert weight_sum[0][i] == 1.0
-
-    def test_sentence_weights_shape(self):
-        self.setup()
-        batch = torch.rand((self.max_sent, self.embedding_size))
-        output = self.model.__get_sentence_weights__(batch)
-        assert len(output.shape) == 2
-        o_s, o_e = output.shape
-        assert o_s == self.max_sent
-        assert o_e == 1
-
-    def test_sentence_weights_softmax(self):
-        self.setup()
-        batch = torch.rand((self.max_sent, self.embedding_size))
-        output = self.model.__get_sentence_weights__(batch)
-        weight_sum = torch.sum(output, dim=-1)
-        print(weight_sum.shape)
-        for i in range(self.max_sent):
-            assert weight_sum[i] == 1.0
 
     def test_model(self):
         batch = self.setup_indice_batch()
@@ -156,4 +122,24 @@ class TestHIERcuda:
     def test_cuda(self):
         batch = self.setup_indice_batch().cuda()
         pred = self.model(batch, torch.ones(batch.shape[:-1], dtype=torch.bool).cuda())
+        assert True
+
+
+class TestAttention:
+
+    def setup_batch(self):
+        self.batch = torch.rand(1, 25, 200)
+
+    def test_basics(self):
+        self.setup_batch()
+        # Tests, if we can instantiate the class
+        a = Attention()
+        r = a(self.batch)
+        assert len(r.shape) == 2 and r.shape[1] == 200 and r.shape[0] == 1
+        a = Attention(attention_type=AttentionType.BILINEAR, attention_sizes=[100])
+        r = a(self.batch)
+        assert len(r.shape) == 2 and r.shape[1] == 200 and r.shape[0] == 1
+        a = Attention(attention_type=AttentionType.ADDITIVE, attention_sizes=[200, 100])
+        r = a(self.batch)
+        assert len(r.shape) == 2 and r.shape[1] == 200 and r.shape[0] == 1
         assert True
