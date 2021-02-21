@@ -89,8 +89,8 @@ class TestPreprocessing:
         t = [["<num>", "<anon>", "<norm>"]]
         res = [["<anon>", "<norm>"]]
         assert list(finalize(t)) == res
-        t = [["Die", ""]]
-        res = [["Die"]]
+        t = [["Die", "Show", ""]]
+        res = [["Die", "Show"]]
         assert list(finalize(t)) == res
         t = [["<num>" , "Wird", "eine", "Grunddienstbarkeit", "nach"]]
         res = [["Wird", "eine", "Grunddienstbarkeit", "nach"]]
@@ -239,6 +239,15 @@ class TestPreprocessing:
             ["die", "beschwerde", "hat", "keinen", "erfolg"] 
         ]
         assert list(process_segment(t)) == res
+        t = [
+            "II.",
+            "vgl.",
+            "Die Beschwerde hat keinen Erfolg."
+        ]
+        res = [
+            ["die", "beschwerde", "hat", "keinen", "erfolg"] 
+        ]
+        assert list(process_segment(t, remove_on_low_word_count=True)) == res
 
     def test_integration(self):
         t = load_verdict(Path("src")/"testing"/"test_data"/"short.json", normalize=True)

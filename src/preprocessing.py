@@ -165,7 +165,8 @@ def load_verdict(file: Path, normalize: bool) -> Dict[str, List[List[str]]]:
 def process_segment(
         sentences: List[str], 
         normalize: bool=True, 
-        tokenization: TokenizationType=TokenizationType.SPACE
+        tokenization: TokenizationType=TokenizationType.SPACE,
+        remove_on_low_word_count: bool=False
     ) -> List[List[str]]:
     # Following processing steps are done:
     #  - (if normalize) text to lower case
@@ -178,7 +179,7 @@ def process_segment(
     tokenized_sentences = split(sentences, normalize)
     tokenized_sentences = replace_tokens(tokenized_sentences)
     tokenized_sentences = remove_special_characters(tokenized_sentences)
-    tokenized_sentences = finalize(tokenized_sentences)
+    tokenized_sentences = finalize(tokenized_sentences, remove_on_low_word_count)
     return tokenized_sentences
 
 def split(
@@ -212,7 +213,7 @@ def replace_tokens(
             else:
                 return "<num>"
         # Do we really need to check all characters for "."? It should be sufficient to see if there are at least ".." in the word
-        elif len(token) >= 2 and (".." in token or "xx" in token or "##" in token or "…" in token):
+        elif len(token) >= 2 and (".." in token or "xx" in token or "##" in token or "…" in token or "°°" in token or "--" in token):
             return "<anon>"
         else:
             return token
@@ -254,7 +255,8 @@ def remove_special_characters(
     return sentences
 
 def finalize(
-        sentences: Iterable[List[str]]
+        sentences: Iterable[List[str]],
+        remove_on_low_word_count: bool=False
     ) -> List[List[str]]:
 
     def token_filter(token: str, start: bool):
@@ -272,10 +274,12 @@ def finalize(
         return True
         
     result = []
+    min_count = 1 if remove_on_low_word_count else 0
     for sentence in sentences:
         start = [True]
         sentence = list(filter(lambda token: token_filter(token, start), sentence))
-        if len(sentence) > 0:
+        # ATTENTION: We will remove sentence with very low word count, as those are obviously errors with the sentence segmentation
+        if len(sentence) > min_count:
             result.append(sentence)
 
     return result
