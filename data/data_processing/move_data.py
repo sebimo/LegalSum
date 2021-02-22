@@ -52,7 +52,7 @@ for file in tqdm(os.listdir(folder)):
         with io.open(folder/file, "r", encoding='utf-8') as f:
             dic = json.load(f)
         # TODO here is a bug, where we would write empty files (facts and reasoning could be empty)
-        if len(dic["guiding_principle"][0]) > 0 or len(dic["guiding_principle"][1]) > 0:
+        if (len(dic["guiding_principle"][0]) > 0 or len(dic["guiding_principle"][1]) > 0) and (len(dic["facts"] > 0 or len(dic["reasoning"]) > 0)):
             written_files.add(file)
             with io.open(save_path/file, "w", encoding='utf-8') as f:
                 json.dump(dic, f, sort_keys=False, indent=4, ensure_ascii=False)
