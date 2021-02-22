@@ -213,7 +213,7 @@ def replace_tokens(
             else:
                 return "<num>"
         # Do we really need to check all characters for "."? It should be sufficient to see if there are at least ".." in the word
-        elif len(token) >= 2 and (".." in token or "xx" in token or "##" in token or "…" in token or "°°" in token or "--" in token):
+        elif len(token) >= 2 and (".." in token or "xx" in token or "##" in token or "…" in token or "°°" in token or "--" in token or "__" in token):
             return "<anon>"
         else:
             return token

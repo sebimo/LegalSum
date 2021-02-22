@@ -248,6 +248,10 @@ class TestPreprocessing:
             ["die", "beschwerde", "hat", "keinen", "erfolg"] 
         ]
         assert list(process_segment(t, remove_on_low_word_count=True)) == res
+        # With escape sequences:
+        t = [ "In der Sache hat\n\nsie keinen Erfolg." ]
+        res = ["In", "der", "Sache", "hat", "sie", "keinen", "Erfolg"]
+        assert list(process_segment(t, normalize=False)) == res
 
     def test_integration(self):
         t = load_verdict(Path("src")/"testing"/"test_data"/"short.json", normalize=True)
