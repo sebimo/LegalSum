@@ -30,6 +30,8 @@ LETTERS_PLUS = LETTERS+"-/"
 NUMBERS = string.digits
 NUMBERS_PLUS = NUMBERS+"."
 ABBREV_LETTER = LETTERS+"."
+CHARACTERS = LETTERS + NUMBERS
+CHARS_PLUS = CHARACTERS + "§"
 # Counter used to identify common tokens around §-sign
 NEW_IGNORES = Counter()
 NORM_SET = set()
@@ -53,7 +55,9 @@ def annotate_verdicts():
     """ Will go through all the verdicts and tries to reannotate them. Based on ENABLE_REWRITING they are commited back to disk. """
     normDB = NormDatabase(Path("data")/"norms"/"norms.db") if ENABLE_REWRITING else NormDBStub()
     for verdict in tqdm(os.listdir(DATA_PATH), desc="Processing"):
+        print(verdict)
         process_verdict(DATA_PATH/verdict, normDB)
+        break
 
     # Code was used to identify which tokens are commonly used around §-signs
     """with io.open(Path("data")/"norms"/"norms_ignored_words.txt", "a+", encoding="utf-8") as f:
@@ -142,12 +146,17 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
     pieces = []
     norms = {}
     current_norm = []
+    # We might need to keep track of the special characters before and after a norm
+    special_before = ""
+    special_after = ""
     state = SearchMode.UNKNOWN
     for token in split:
         cleaned_token = "".join(filter(str.isalpha, token.lower()))
         if state == SearchMode.UNKNOWN:
             if cleaned_token in NORM_SET or "§" in token:
-                current_norm = [token]
+                # We need to separate any special characters at the beginning from the token
+                special_before, res_token = get_special_before(token)
+                current_norm = [res_token]
                 state = SearchMode.NORM
             else:
                 pieces.append(token)
@@ -158,30 +167,38 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
                 current_norm.append(token)
             else:
                 if len(current_norm) > 1 or "§" not in current_norm[0]: 
+                    special_after, current_norm[-1] = get_special_after(current_norm[-1])
                     norm = " ".join(current_norm)
                     placeholder = normDB.register_norm(norm)
                     norms[placeholder] = norm
-                    current_norm = []
+                    pieces.append(special_before + placeholder + special_after)
 
-                    pieces.append(placeholder)
+                    current_norm = []
+                    special_before = ""
+                    special_after = ""
                 else:
+                    # Check for special_before
+                    current_norm[0] = special_before + current_norm[0]
                     for p in current_norm:
                         pieces.append(p)
                     current_norm = []
 
                 if cleaned_token in NORM_SET or "§" in token:
-                    current_norm = [token]
+                    # Check for special_before
+                    special_before, res_token = get_special_before(token)
+                    current_norm = [res_token]
                     state = SearchMode.NORM
                 else:
                     pieces.append(token)
                     state = SearchMode.UNKNOWN
 
     if len(current_norm) > 0:
+        special_after, current_norm[-1] = get_special_after(current_norm[-1])
         norm = " ".join(current_norm)
         placeholder = normDB.register_norm(norm)
         norms[placeholder] = norm
         current_norm = None
-        pieces.append(placeholder)
+        pieces.append(special_before + placeholder + special_after)
 
     finalized_sentence = " ".join(pieces)
     return finalized_sentence, norms
@@ -448,6 +465,26 @@ def annotate_publisher(sentences: List[str]):
 
 def split(sentences: List[str]) -> Iterable[List[str]]:
     return map(lambda sentence: list(filter(lambda tok: tok is not None and len(tok) > 0, re.split(r"[\s]+", sentence))), sentences)
+
+def get_special_before(token: str) -> Tuple[str, str]:
+    """ Will split the token into special character at the beginning + remaining token, e.g. "(BGB" -> ("(", "BGB") """
+    res_before = []
+    res_tok = ""
+    for i, c in enumerate(token):
+        if c not in CHARS_PLUS:
+            res_before.append(c)
+        else:
+            res_tok = token[i:]
+            break
+    return "".join(res_before), res_tok
+
+def get_special_after(token: str) -> Tuple[str, str]:
+    """ Will split the token into special character at the end + remaining token, e.g. "BGB)" -> (")", "BGB") """
+    # Obviously it is a bit of a hacky solution to reverse the string and then just use get_special_before
+    # But as the only time, when this will be called is at the end of a norm + norm references are really short tokens, this is sufficient
+    rev_token = token[::-1]
+    rev_before, rev_tok = get_special_before(rev_token)
+    return rev_before[::-1], rev_tok[::-1]
 
 def setup_norm_set():
     """ Gets all the known abbreviation for known norms from the file names of the norm dataset """

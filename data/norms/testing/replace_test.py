@@ -1,6 +1,6 @@
 import pytest
 
-from ..replace import split, process_normchain, process_sentence
+from ..replace import split, process_normchain, process_sentence, process_segment, get_special_after, get_special_before
 from ..normdb import NormDBStub
 
 class Test:
@@ -60,6 +60,9 @@ class Test:
         t = ["BGB §§ 434, 437, 440, 323, 278, 823"]
         r, _ = process_normchain(t, db)
         assert r == ["BGB § 434", "BGB § 437", "BGB § 440", "BGB § 323", "BGB § 278", "BGB § 823"]
+        t = ["WaffG § 45 Abs. 2, 5 Abs. 1 Nr. 2; StAG § 1, § 30"]
+        r, _ = process_normchain(t, db)
+        assert r == ["WaffG § 45 Abs. 2", "WaffG § 5 Abs. 1 Nr. 2", "StAG § 1", "StAG § 30"]
         
         # Edge cases:
         t = ["Normen: BGB §§ 434, 437, 440, 323, 278, 823"]
@@ -113,7 +116,7 @@ class Test:
         assert res == "Zulassungsgrund nach __norm1__ ist nicht hinreichend dargelegt"
         assert len(norms) == 1
         assert norms["__norm1__"] == "§124 Abs.2 Nr.1 VwGO"
-        sentence = "Zulassungsgrund nach §124 Abs.2 Nr.1 ist nicht hinreichend dargelegt"
+        sentence = "Zulassungsgrund nach §124 Abs.2 Nr.1 GG ist nicht hinreichend dargelegt"
         res, norms = process_sentence(sentence, db)
         assert res == "Zulassungsgrund nach __norm2__ ist nicht hinreichend dargelegt"
         # Multi-Norms -> those will be replaced with one unique identifier, as we only want to filer them from the text
@@ -131,4 +134,73 @@ class Test:
         sentence = "Zulassungsgrund nach § 1 Abs. 1a 23 GG"
         res, _ = process_sentence(sentence, db)
         assert res == "Zulassungsgrund nach __norm5__"
+        # Check for special characters at beginning or end or norm
+        sentence = "Zulassungsgrund nach (§ 1 Abs. 1a 23 GG)"
+        res, _ = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach (__norm5__)"
+        sentence = "Zulassungsgrund nach § 1 Abs. 1a 23 GG."
+        res, _ = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach __norm5__."
+        # Check with special characters
+        sentence = "Zulassungsgrund nach § 1 Abs. 1a 23 ist nicht gültig."
+        res, _ = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach __norm6__ ist nicht gültig."
+        sentence = "Zulassungsgrund nach (§ 1 Abs. 1a 23) ist nicht gültig."
+        res, _ = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach (__norm6__) ist nicht gültig."
+        sentence = "Zulassungsgrund nach BGB § 124 Abs. 2 ist nicht hinreichend dargelegt"
+        res, norms = process_sentence(sentence, db)
+        assert res == "Zulassungsgrund nach __norm7__ ist nicht hinreichend dargelegt"
 
+    def test_special_separation(self):
+        tok = "(BGB"
+        res1 = get_special_before(tok)
+        res2 = get_special_after(tok)
+        assert res1 == ("(", "BGB")
+        assert res2 == ("", "(BGB")
+        tok = "((BGB"
+        res1 = get_special_before(tok)
+        res2 = get_special_after(tok)
+        assert res1 == ("((", "BGB")
+        assert res2 == ("", "((BGB")
+        tok = "(BGB)"
+        res1 = get_special_before(tok)
+        res2 = get_special_after(tok)
+        assert res1 == ("(", "BGB)")
+        assert res2 == (")", "(BGB")
+        tok = "(BGB))"
+        res1 = get_special_before(tok)
+        res2 = get_special_after(tok)
+        assert res1 == ("(", "BGB))")
+        assert res2 == ("))", "(BGB")
+        tok = "BGB."
+        res1 = get_special_before(tok)
+        res2 = get_special_after(tok)
+        assert res1 == ("", "BGB.")
+        assert res2 == (".", "BGB")
+        tok = "2BGB2"
+        res1 = get_special_before(tok)
+        res2 = get_special_after(tok)
+        assert res1 == ("", "2BGB2")
+        assert res2 == ("", "2BGB2")
+        tok = "§"
+        res1 = get_special_before(tok)
+        res2 = get_special_after(tok)
+        assert res1 == ("", "§")
+        assert res2 == ("", "§")
+
+
+    def test_segment(self):
+        db = NormDBStub()
+        segment = [
+            "Der zulässige Antrag, über den im Einverständnis der Beteiligten der Berichterstatter anstelle des Senats entscheidet (§§ 87a Abs. 2 und 3, 125 Abs. 1 VwGO), ist unbegründet.",
+            "Das Antragsvorbringen führt nicht auf einen der in Anspruch genommenen Zulassungsgründe der ernstlichen Zweifel an der Richtigkeit der erstinstanzlichen Entscheidung (§ 124 Abs. 2 Nr. 1 VwGO, nachfolgend unter 1.), des Vorliegens besonderer tatsächlicher oder rechtlicher Schwierigkeiten der Rechtssache (§ 124 Abs.2 Nr. 2 VwGO, nachfolgend unter 2.) oder ihrer grundsätzlichen Bedeutung (§124 Abs. 2 Nr. 3 VwGO, nachfolgend unter 3.).",
+            "1. Es bestehen zunächst keine ernstlichen Zweifel an der Richtigkeit der erstinstanzlichen Entscheidung im Sinne des § 124 Abs. 2 Nr. 1 VwGO."
+        ]
+        res, _ = process_segment(segment, db)
+        y = [
+            "Der zulässige Antrag, über den im Einverständnis der Beteiligten der Berichterstatter anstelle des Senats entscheidet (__norm1__), ist unbegründet.",
+            "Das Antragsvorbringen führt nicht auf einen der in Anspruch genommenen Zulassungsgründe der ernstlichen Zweifel an der Richtigkeit der erstinstanzlichen Entscheidung (__norm2__, nachfolgend unter 1.), des Vorliegens besonderer tatsächlicher oder rechtlicher Schwierigkeiten der Rechtssache (__norm3__, nachfolgend unter 2.) oder ihrer grundsätzlichen Bedeutung (__norm4__, nachfolgend unter 3.).",
+            "1. Es bestehen zunächst keine ernstlichen Zweifel an der Richtigkeit der erstinstanzlichen Entscheidung im Sinne des __norm2__."
+        ]
+        assert res == y
