@@ -108,6 +108,10 @@ class Test:
         r, n = process_normchain(t5, db)
         assert r == t5
         assert n == {}
+        # Empty norms
+        t = ["GKG § 50;;GKG § 54"]
+        r, n = process_normchain(t, db)
+        assert r == ["GKG § 50", "GKG § 54"]
 
     def test_sentence(self):
         db = NormDBStub()
@@ -149,8 +153,29 @@ class Test:
         res, _ = process_sentence(sentence, db)
         assert res == "Zulassungsgrund nach (__norm6__) ist nicht gültig."
         sentence = "Zulassungsgrund nach BGB § 124 Abs. 2 ist nicht hinreichend dargelegt"
-        res, norms = process_sentence(sentence, db)
+        res, _ = process_sentence(sentence, db)
         assert res == "Zulassungsgrund nach __norm7__ ist nicht hinreichend dargelegt"
+        sentence = "15.3. zu § 15 ZVG hingewiesen."
+        res, _ = process_sentence(sentence, db)
+        assert res == "15.3. zu __norm8__ hingewiesen."
+        sentence = "Überdies ist auch strittig, ob und ggf. in welchen Fällen ein Nachweisverzicht im Sinne von § 726 Abs. 1 ZPO statthaft und wirksam ist (siehe insoweit auch die Ausführungen in der von der Gläubigerseite benannten Entscheidung des Oberlandesgerichts München vom 23.6.2016 – 34 Wx 189/16)."
+        res, _ = process_sentence(sentence, db)
+        assert res == "Überdies ist auch strittig, ob und ggf. in welchen Fällen ein Nachweisverzicht im Sinne von __norm9__ statthaft und wirksam ist (siehe insoweit auch die Ausführungen in der von der Gläubigerseite benannten Entscheidung des Oberlandesgerichts München vom 23.6.2016 – 34 Wx 189/16)."
+        sentence = "Ablauf der 6-monatigen Kündigungsfrist gem. § 1193 Abs. 1 BGB stellen dabei eine aufschiebende Bedingung im Sinne von __norm22__ dar"
+        res, _ = process_sentence(sentence, db)
+        assert res == "Ablauf der 6-monatigen Kündigungsfrist gem. __norm10__ stellen dabei eine aufschiebende Bedingung im Sinne von __norm22__ dar"
+        sentence = "Nachweises der Fälligkeit deren Nichtvorliegen für den Notar eindeutig erkennbar auf der Hand lag."
+        res, _ = process_sentence(sentence, db)
+        assert res == "Nachweises der Fälligkeit deren Nichtvorliegen für den Notar eindeutig erkennbar auf der Hand lag."
+        sentence = "Nacherfüllung gänzlich unmöglich wäre (§ 275 Abs. 1 BGB) – bedarf deshalb keiner Entscheidung."
+        res, _ = process_sentence(sentence, db)
+        assert res == "Nacherfüllung gänzlich unmöglich wäre (__norm11__) – bedarf deshalb keiner Entscheidung."
+        sentence = "Fristsetzung unter den in § 323 Abs. 2 BGB und § 440 BGB abschließend geregelten Voraussetzungen"
+        res, _ = process_sentence(sentence, db)
+        assert res == "Fristsetzung unter den in __norm12__ abschließend geregelten Voraussetzungen"
+        sentence = "deutschen Rechtsordnung nicht fremd (z.B. § 38 BZRG) und vom Verurteilten"
+        res, _ = process_sentence(sentence, db)
+        assert res == "deutschen Rechtsordnung nicht fremd (z.B. __norm13__) und vom Verurteilten"
 
     def test_special_separation(self):
         tok = "(BGB"

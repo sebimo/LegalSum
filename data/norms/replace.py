@@ -27,6 +27,7 @@ DATA_PATH = Path("data")/"dataset"
 SEPARATOR_LIST = ()
 LETTERS = string.ascii_letters+"äÄüÜöÖß"
 LETTERS_PLUS = LETTERS+"-/"
+LETTERS_PARAGRAPH = LETTERS+"§"
 NUMBERS = string.digits
 NUMBERS_PLUS = NUMBERS+"."
 ABBREV_LETTER = LETTERS+"."
@@ -37,7 +38,7 @@ NEW_IGNORES = Counter()
 NORM_SET = set()
 
 # Flag used to enable writing the verdicts back to disk
-ENABLE_REWRITING = False
+ENABLE_REWRITING = True
 
 # States used for parsing the normchain
 class NormState(Enum):
@@ -54,10 +55,8 @@ class SearchMode(Enum):
 def annotate_verdicts():
     """ Will go through all the verdicts and tries to reannotate them. Based on ENABLE_REWRITING they are commited back to disk. """
     normDB = NormDatabase(Path("data")/"norms"/"norms.db") if ENABLE_REWRITING else NormDBStub()
-    for verdict in tqdm(os.listdir(DATA_PATH), desc="Processing"):
-        print(verdict)
+    for verdict in tqdm(os.listdir(DATA_PATH)[45000:], desc="Processing"):
         process_verdict(DATA_PATH/verdict, normDB)
-        break
 
     # Code was used to identify which tokens are commonly used around §-signs
     """with io.open(Path("data")/"norms"/"norms_ignored_words.txt", "a+", encoding="utf-8") as f:
@@ -78,23 +77,28 @@ def process_verdict(filepath: Path, normDB: NormDatabase):
     """
     verdict = __load_verdict__(filepath)
     norms = dict()
+    updated = False
     guid_princ_0, n = process_segment(verdict["guiding_principle"][0], normDB)
     if len(n) > 0:
+        updated = True
         verdict["guiding_principle"][0] = guid_princ_0
         norms.update(n)
 
     guid_princ_1, n = process_segment(verdict["guiding_principle"][1], normDB)
     if len(n) > 0:
+        updated = True
         verdict["guiding_principle"][1] = guid_princ_1
         norms.update(n)
 
     facts, n = process_segment(verdict["facts"], normDB)
     if len(n) > 0:
+        updated = True
         verdict["facts"] = facts
         norms.update(n)
 
     reasoning, n = process_segment(verdict["reasoning"], normDB)
     if len(n) > 0:
+        updated = True
         verdict["reasoning"] = reasoning
         norms.update(n)
 
@@ -104,7 +108,8 @@ def process_verdict(filepath: Path, normDB: NormDatabase):
         print(filepath)
         raise AssertionError
     if len(n) > 0:
-        verdict["normchain"] = chain
+        updated = True
+        verdict["normchain"] = list(n.keys())
         norms.update(n)
 
     if len(verdict["norms"]) == 0:
@@ -112,8 +117,7 @@ def process_verdict(filepath: Path, normDB: NormDatabase):
     else:
         verdict["norms"].update(norms)
 
-    if ENABLE_REWRITING:
-        raise ValueError("Should not write right now.")
+    if updated:
         __write_verdict__(verdict, filepath)
     
 def process_segment(segment: List[str], normDB: NormDatabase) -> Tuple[List[str], Dict[str, str]]:
@@ -151,7 +155,7 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
     special_after = ""
     state = SearchMode.UNKNOWN
     for token in split:
-        cleaned_token = "".join(filter(str.isalpha, token.lower()))
+        cleaned_token = "".join(filter(str.isalpha, token))
         if state == SearchMode.UNKNOWN:
             if cleaned_token in NORM_SET or "§" in token:
                 # We need to separate any special characters at the beginning from the token
@@ -166,7 +170,21 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
             if all(c in NUMBERS_PLUS for c in token) or cleaned_token in NORM_SET or is_paragraph_token(token):
                 current_norm.append(token)
             else:
-                if len(current_norm) > 1 or "§" not in current_norm[0]: 
+                # We have to remove any tokens at the end which are not nums or in NORM_SET or single characters;
+                # The tokens in separator list cannot be at the end, as the are only further specifying a position in a norm
+                subpieces = []
+                for tok in current_norm[::-1]:
+                    c_tok = "".join(filter(str.isalnum, tok))
+                    # Not isalpha -> does contain numbers; 
+                    if not c_tok.isalpha() or c_tok in NORM_SET or len(c_tok) == 1:
+                        break
+                    else:
+                        subpieces.insert(0, tok)
+                
+                if len(subpieces) > 0:
+                    current_norm = current_norm[:-len(subpieces)]
+
+                if len(current_norm) > 1 or (len(current_norm) == 1 and "§" not in current_norm[0]): 
                     special_after, current_norm[-1] = get_special_after(current_norm[-1])
                     norm = " ".join(current_norm)
                     placeholder = normDB.register_norm(norm)
@@ -178,10 +196,15 @@ def process_sentence(sentence: str, normDB: NormDatabase) -> Tuple[List[str], Di
                     special_after = ""
                 else:
                     # Check for special_before
-                    current_norm[0] = special_before + current_norm[0]
+                    if len(current_norm) > 0:
+                        current_norm[0] = special_before + current_norm[0]
                     for p in current_norm:
                         pieces.append(p)
                     current_norm = []
+
+                # But all the false norm parts back
+                for s in subpieces:
+                    pieces.append(s)
 
                 if cleaned_token in NORM_SET or "§" in token:
                     # Check for special_before
@@ -277,6 +300,7 @@ def process_normchain(chain: List[str], normDB: NormDatabase) -> Tuple[List[str]
                     current_norm, current_paragraphs = finalize_current_norm(current_norm, current_paragraphs)
                     processed_norms += finalize_norm(current_norm, current_paragraphs)
 
+    processed_norms = list(filter(lambda n: len(n) > 0, processed_norms))
     norm_dict = {}
     for norm in processed_norms:
         placeholder = normDB.register_norm(norm)
@@ -422,7 +446,8 @@ def is_paragraph_token(token: str):
         As there are many possible writing styles for referencing a specific passage in a norm,
         we need to write a robust function for filtering them.
     """
-    paragraph_token = token.lower().startswith(SEPARATOR_LIST) or len(token) == 1 or token[0].isnumeric()
+    # Single tokens need exact match
+    paragraph_token = token.lower().startswith(SEPARATOR_LIST) or (len(token) == 1 and token in LETTERS_PARAGRAPH) or token[0].isnumeric()
     return paragraph_token
     # Code used to collect all the tokens which are commonly found around §-signs
     """if token.lower().startswith(SEPARATOR_LIST):
@@ -439,11 +464,14 @@ def finalize_norm(norm: str, paragraphs: List[str]) -> List[str]:
     return result
 
 def read_separator_list():
+    # We need to remove single characters here, as otherwise the startswith logic will be false
     global SEPARATOR_LIST
     seps = []
     with io.open(Path("data")/"norms"/"norms_separator.txt", "r", encoding="utf-8") as f:
         for l in f.readlines():
-            seps.append(l.lower().strip())
+            tok = l.lower().strip()
+            if len(tok) > 1:
+                seps.append(tok)
     SEPARATOR_LIST = tuple(seps)
 
 def read_user_info(path: Path=Path("data")/"norms"/"config.ini"):
@@ -492,14 +520,17 @@ def setup_norm_set():
     if len(NORM_SET) == 0:
         for file in os.listdir(NORM_PATH):
             assert file.endswith(".json")
-            NORM_SET.add(file.replace(".json", "").lower())
+            # We cannot lower the norms as this introduces some false positives -> to be more precise and fetch more cases we would need so fuzzy matching
+            NORM_SET.add(file.replace(".json", ""))
 
 def __load_verdict__(path: Path):
-    with io.open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with io.open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.decoder.JSONDecodeError:
+        raise ValueError(str(path))
 
 def __write_verdict__(dic: Dict, save_path: Path):
-    raise ValueError("Should not write right now.")
     with io.open(save_path, "w", encoding="utf-8") as f:
         json.dump(dic, f, sort_keys=False, indent=4, ensure_ascii=False)
 
