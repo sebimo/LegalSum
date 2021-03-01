@@ -74,7 +74,7 @@ class Tokenizer:
         # TODO do some token analysis, i.e. how often they occur and their count distribution etc.
         if max_num_tokens > 0:
             # -1 for <unk>, so we have a predefined token corpus size to be max_num_tokens
-            for i, tok in enumerate(frequency.most_common(max_num_tokens-1)):
+            for i, (tok, _) in enumerate(frequency.most_common(max_num_tokens-1)):
                 self.tok2id[tok] = i+1
                 self.id2tok[i+1] = tok
         else:
@@ -98,7 +98,7 @@ class Tokenizer:
         with io.open(self.path/"tokenizer.pkl", "wb") as f:
             pickle.dump(state, f)
 
-    def tokenize_verdict(self, file: Path) -> Dict[str, List[List[float]]]:
+    def tokenize_verdict(self, file: Path) -> Dict[str, List[List[int]]]:
         """ Loads the verdict from the path and translates its token to ids via the tokenizer mapping """
         verdict = load_verdict(file, normalize=self.normalize)
         for segment in verdict:
