@@ -24,9 +24,10 @@ from torch.utils.data import Dataset
 
 from rouge import Rouge # https://github.com/pltrdy/rouge
 
-from .preprocessing import load_verdict, TokenizationType
+from preprocessing import load_verdict, TokenizationType
 # We use import as to be able to switch out the Tokenizer later on
-from .preprocessing import Tokenizer as Tokenizer
+from preprocessing import Tokenizer as Tokenizer
+from coverage import find_optimal_coverage
 
 DATA_PATH = Path("data")/"dataset"
 MODEL_PATH = Path("model")
@@ -106,7 +107,7 @@ def collate(batch: List[Tuple[List[torch.Tensor], torch.Tensor]]) -> List[Tuple[
     return res
 
 
-# TODO fix train, val, test split
+# Fix train, val, test split
 def fix_data_split(percentage: List[float]=[0.8,0.1,0.1]):
     """ Creates the datasplit via assigning files to the train, val or test set 
         Params:
@@ -185,7 +186,7 @@ def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer, create_
     return (facts, reasoning)
 
 def create_ext_target_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_PATH):
-    """ Creates the database used for querying the gold labels for the extractive summarization task """
+    """ Creates the database used for querying the gold labels for the extractive summarization task. Based on a one-to-one mapping for the guiding principles sentences to verdict sentence. """
     print("Creating gold labels for extractive summarization:")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -265,6 +266,44 @@ def create_ext_target_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_P
     
     conn.close()
 
+def create_ext_greedy_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_PATH):
+    """ Creates the database used for querying the gold labels for the extractive summarization task. Greedily takes sentences until the we cannot improve further.
+        Acutally we try to find the exact set of sentences, which in the bigram setting boils down to the NP-complete problem of finding a minimal spanning set in a hypergraph.
+        But in our case we should be fine, as we only need to look at sentences which have a total overlap of 2-grams.
+    """
+    print("Creating gold labels for extractive summarization:")
+    """conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("create table labels (name text not null, tokenizer integer not null, section integer not null, ind integer not null, primary key (name,tokenizer));")
+        conn.commit()
+    except sqlite3.OperationalError:
+        print("Resuming from previously build table")"""
+    
+    counts = []
+    for file in tqdm(os.listdir(data_folder), desc="Generating gold labels"):
+        verdict = tok.tokenize_verdict(data_folder/file)
+        tok_type = 1 if tok.get_type() == TokenizationType.SPACE else 2
+
+        indices = find_optimal_coverage(verdict["guiding_principle"], verdict["facts"], verdict["reasoning"])
+        counts.append((indices, len(verdict["facts"])+len(verdict["reasoning"])))
+
+        """if len(indices[0]) == 0 and len(indices[1]) == 0:        
+            with io.open("logging/missing_ext_greedy_goldlabel.txt", "a+") as f:
+                f.write(file + "\n")
+
+        assert all(i > -1 for _, i in indices[0]) and all(i > -1 for _, i in indices[1])
+
+        for i in indices[0]:
+            cursor.execute("insert into labels values (?, ?, ?, ?);", (file, tok_type, 0, i))
+        for i in indices[1]:
+            cursor.execute("insert into labels values (?, ?, ?, ?);", (file, tok_type,  1, i))
+        conn.commit()
+    
+    conn.close()"""
+    with open(Path("src")/"analysis"/"rouge_counts.pkl", "wb") as f:
+        pickle.dump(counts, f)
+
 def get_norm_sentences(norm: str, paragraph: str, db_path: Path=NORM_DB_PATH) -> List[str]:
     """ Query the norms.db to get the paragraph and sentence of a referenced norm 
         ATTENTION: It is still necessary to use the Tokenizer on the resulting sentences
@@ -288,8 +327,9 @@ def get_norms(db_path: Path=NORM_DB_PATH) -> Set[str]:
     return norms
 
 if __name__ == "__main__":
-    #tok = Tokenizer(MODEL_PATH)
+    tok = Tokenizer(MODEL_PATH)
     #tok.create_token_id_mapping()
-    fix_data_split()
-    #create_ext_target_db(Path("data")/"databases"/"extractive.db", tok)
+    #fix_data_split()
+    create_ext_target_db(Path("data")/"databases"/"extractive.db", tok)
+    #create_ext_greedy_db(Path("data")/"databases"/"extractive_greedy.db", tok)
     
