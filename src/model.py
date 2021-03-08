@@ -149,7 +149,7 @@ class RNNEncoder(nn.Module):
                  layers = 1,
                  bidirectional = False,
                  activation: nn.Module = nn.ReLU(),
-                 dropout: float = 0.2,
+                 dropout: float = 0.0,
                  embedding_layer: nn.Module=nn.Embedding):
         super(RNNEncoder, self).__init__()
         self.embedding_size = embedding_size
@@ -157,7 +157,7 @@ class RNNEncoder(nn.Module):
         self._activation = activation
         
         # We might want to replace this embedding layer with something different
-        self._embedding = embedding_layer(n_tokens, embedding_size)
+        self._embedding = embedding_layer
         self.layers = layers
         self.bidirectional = bidirectional
 
@@ -167,37 +167,29 @@ class RNNEncoder(nn.Module):
         self.reduction2 = nn.Linear(self.embedding_size, self.embedding_size)
 
         self._classification = nn.Sequential(
-            nn.Linear(self.embedding_size, 1),
-            nn.Sigmoid()
+            nn.Linear(self.embedding_size, 1)
         )
+        self.sig = nn.Sigmoid()
 
     def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         X = self._embedding(X)
         # Use the mask to exlude any embeddings of  padded vectors
         X = torch.mul(mask.unsqueeze(-1), X)
 
-        initial_shape = X.shape
-        #X = X.reshape((-1, initial_shape[-2], self.embedding_size))
-
         # RNN over the tokens in a sentence
         X, _ = self.gru1(X)
-        #print(initial_shape, X.shape)
-        #X = X.reshape(initial_shape[0], initial_shape[1], self.gru_size)
-        # Max over -2 as, we want to keep the embedding dimensionality
-        #X = torch.mean(X, dim=-2, keepdim=True)
-        #X = torch.squeeze(X, dim=-2)
-
+        # Take last element as embedding for sentence
         X = self.reduction1(X[:,-1,:])
         X = self._activation(X)
 
         X = self.reduction2(X)
         X = self._activation(X)
+        X = self._classification(X)
 
         return X
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
-        y = self._classification(E)
-        return y
+        return self.sig(E)
 
 class CNNEncoder(nn.Module):
 

@@ -2,7 +2,7 @@
 # Combines functionality of dataloading.py and model.py to train the models
 import os
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Callable, Dict, Tuple
 
 from tqdm import tqdm
 import numpy as np
@@ -16,6 +16,9 @@ from .dataloading import ExtractiveDataset, collate, LossType
 from .evaluation import merge, merge_epoch, finalize_statistic, calculate_confusion_matrix
 from .model import save_model
 from .model_logging.logger import Logger
+
+# This threshold will be used to cut up the verdicts for extractive summarization, as it is not feasible to use all the sentences per verdict per train batch at the same time (at least for more complicated models)
+SENT_NUM_THRESHOLD = 64
 
 class Trainer:
 
@@ -187,52 +190,63 @@ class Trainer:
     
     def __process_extr_batch__(self, data):   
         batch_stats = {}
-        # Each entry in data is one document!
-        for x, y, mask in data:
+        # Each entry in data is one document containing an abitrary number of sentences
+        for x_b, y_b, mask_b in data:
             # reset gradients
             self.optim.zero_grad()
 
-            # TODO cut up inputs, which are to big for processing here!
-            # -> we need to define a threshold for encoding sentences
+            # cut up inputs, which are to big for processing, i.e. the num of sentences not above threshold
+            # Alternatives to this would be to change the dataloading process and only serve chunks from verdicts with size SENT_NUM_THRESHOLD,
+            # but this would complicate the dataloading a lot more than simple splitting of tensors here
+            for x, y, mask in self.__minibatch__(x_b, y_b, mask_b):
             
-            # run model
-            if self.cuda:
-                x = x.cuda()
-                y = y.cuda()
-                mask = mask.cuda()
+                # run model
+                if self.cuda:
+                    x = x.cuda()
+                    y = y.cuda()
+                    mask = mask.cuda()
 
-            pred = self.model(x, mask)
-            
-            # calculate loss
-            loss: torch.Tensor = self.loss(pred, y[:,None])
-            if self.train_mode:
-                # backpropagation
-                loss.backward()
-                # We might want to do some gradient clipping
-                # nn.utils.clip_grad_norm_(self.model.parameters(), 1e-2)
-                self.optim.step()
-                self.lr_scheduler.step()
-            
-            # Identify which statistics are pushed to the epoch method
-            # evaluate batch
-            np_loss = loss.cpu().detach().numpy()
-            result = {
-                "loss": np_loss
-            }
+                pred = self.model(x, mask)
+                
+                # calculate loss
+                loss: torch.Tensor = self.loss(pred, y[:,None])
+                if self.train_mode:
+                    # backpropagation
+                    loss.backward()
+                    # We might want to do some gradient clipping
+                    # nn.utils.clip_grad_norm_(self.model.parameters(), 1e-2)
+                    self.optim.step()
+                    self.lr_scheduler.step()
+                
+                # Identify which statistics are pushed to the epoch method
+                # evaluate batch
+                np_loss = loss.cpu().detach().numpy()
+                result = {
+                    "loss": np_loss
+                }
 
-            pred = self.model.classify(pred)
+                pred = self.model.classify(pred)
 
-            np_pred = pred.cpu().detach().numpy().squeeze(axis=1)
-            np_true = y.cpu().detach().numpy()
-            np_pred = np.where(np_pred < 0.5, 0., 1.)
-            assert np_pred.shape[0] > 0, "Predictions empty"+str(np_pred.shape)
-            assert np_true.shape[0] > 0, "Targets empty"+str(np_true.shape)
-            assert np_true.shape == np_pred.shape, "Shape mismatch"+str(np_true.shape) +" != "+str(np_pred.shape)
-            result.update(calculate_confusion_matrix(np_true, np_pred))
+                np_pred = pred.cpu().detach().numpy().squeeze(axis=1)
+                np_true = y.cpu().detach().numpy()
+                np_pred = np.where(np_pred < 0.5, 0., 1.)
+                assert np_pred.shape[0] > 0, "Predictions empty"+str(np_pred.shape)
+                assert np_true.shape[0] > 0, "Targets empty"+str(np_true.shape)
+                assert np_true.shape == np_pred.shape, "Shape mismatch"+str(np_true.shape) +" != "+str(np_pred.shape)
+                result.update(calculate_confusion_matrix(np_true, np_pred))
 
-            batch_stats = merge(batch_stats, result)
+                batch_stats = merge(batch_stats, result)
 
         return batch_stats
+
+    def __minibatch__(self, x_b: torch.Tensor, y_b: torch.Tensor, mask_b: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """ We need to cut up the verdicts in some cases, as the documents have to many sentences for feasible GPU processing, i.e. this function yields all the minibatches formed from a batch which have a capped number of sentences """
+        x_splits = torch.split(x_b, SENT_NUM_THRESHOLD)
+        y_splits = torch.split(y_b, SENT_NUM_THRESHOLD)
+        mask_splits = torch.split(mask_b, SENT_NUM_THRESHOLD)
+        assert len(x_splits) == len(y_splits) == len(mask_splits)
+        for x, y, mask in zip(x_splits, y_splits, mask_splits):
+            yield x, y, mask
 
     def __save_model__(self):
         model_file = Path("model")/(self.logger.experiment + ".model")

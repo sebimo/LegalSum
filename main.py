@@ -6,13 +6,13 @@ import numpy as np
 from src.training import Trainer
 from src.model import RNNEncoder, HierarchicalEncoder
 from src.embedding import Word2Vec, GloVe
-from src.dataloading import ExtractiveDataset, get_train_files, get_val_files, LossType
+from src.dataloading import ExtractiveDataset, get_train_files, get_val_files, LossType, transform_cutoff
 from src.preprocessing import Tokenizer
 from src.model_logging.logger import Logger as MyLogger
 
 ABSTRACTIVE = False
 TOKENIZER_PATH = Path("model")
-LOGGER_ON = True
+LOGGER_ON = False
 EMBEDDINGS = ["training", "word2vec", "glove"]
 
 def start():
@@ -31,32 +31,30 @@ def start():
     tok = Tokenizer(TOKENIZER_PATH, normalize=True, mapping=embedding.get_word_mapping())
     loss_type = LossType.BCE
     # Depending on the loss, we need different targets from the dataset
-    trainset = ExtractiveDataset(get_train_files(), tok, loss_type)
-    valset = ExtractiveDataset(get_val_files(), tok, loss_type)
+    trainset = ExtractiveDataset(get_train_files(), tok, loss_type, transform=transform_cutoff)
+    valset = ExtractiveDataset(get_val_files(), tok, loss_type, transform=transform_cutoff)
 
-    for attention in ["DOT", "BILINEAR", "ADDITIVE"]:
-        for _ in range(3):
-            model = (
-                HierarchicalEncoder(embedding_size=embedding_size, 
-                                    n_tokens=tok.get_num_tokens(),
-                                    embedding_layer=embedding,
-                                    attention=attention),
-                "HIER"
-            )
-            lr = random_log_lr()
+    for _ in range(3):
+        model = (
+            RNNEncoder(embedding_size=embedding_size, 
+                       n_tokens=tok.get_num_tokens(),
+                       embedding_layer=embedding),
+            "RNN"
+        )
+        lr = random_log_lr()
 
-            logger_params = {
-                "model": model[1],
-                "lr": lr,
-                "abstractive": 1 if ABSTRACTIVE else 0,
-                "embedding": embedding.get_name(), 
-                "attention": attention,
-                "loss_type": "BCE" if loss_type == LossType.BCE else "UNKNOWN"
-            }
-            logger.start_experiment(logger_params)
+        logger_params = {
+            "model": model[1],
+            "lr": lr,
+            "abstractive": 1 if ABSTRACTIVE else 0,
+            "embedding": embedding.get_name(), 
+            "attention": "None",
+            "loss_type": "BCE" if loss_type == LossType.BCE else "UNKNOWN"
+        }
+        logger.start_experiment(logger_params)
 
-            trainer = Trainer(model[0], trainset, valset, logger, ABSTRACTIVE)
-            trainer.train(loss_type, epochs=20, lr=lr)
+        trainer = Trainer(model[0], trainset, valset, logger, ABSTRACTIVE)
+        trainer.train(loss_type, epochs=20, lr=lr)
 
 def random_log_lr(lr_range: Tuple[float, float]=(1e-1, 1e-5)) -> float:
     """ Will draw a random learning rate on a logarithmic scale, i.e. drawing the  lr from (1e-5, 1e-4) is as likely as from (1e-2,1e-1) """
