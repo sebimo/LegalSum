@@ -3,7 +3,6 @@
 import os
 from pathlib import Path
 from typing import Callable, Dict
-from enum import Enum
 
 from tqdm import tqdm
 import numpy as np
@@ -13,13 +12,10 @@ from torch.utils.data import DataLoader, Dataset
 from torch.optim import SparseAdam, Adam
 from torch.optim.lr_scheduler import MultiplicativeLR
 
-from .dataloading import ExtractiveDataset, collate
+from .dataloading import ExtractiveDataset, collate, LossType
 from .evaluation import merge, merge_epoch, finalize_statistic, calculate_confusion_matrix
 from .model import save_model
 from .model_logging.logger import Logger
-
-class LossType(Enum):
-    BCE = 0
 
 class Trainer:
 
@@ -43,7 +39,6 @@ class Trainer:
         # If we are using nn.Embeddings, we need to use a sparse optimizer i.e. optim.SparseAdam or optim.SGD (both work on CPU + CUDA)
         self.optim = None
         self.lr_scheduler = None
-        # TODO where do we fit possible word models in here???
 
     def train(self,
               loss: LossType,
@@ -77,7 +72,10 @@ class Trainer:
         print(self.model)
 
         if loss == LossType.BCE:
-            self.loss = nn.BCELoss()
+            pos_weight = torch.tensor([10.0])
+            if self.cuda:
+                pos_weight = pos_weight.cuda()
+            self.loss = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
         self.optim = Adam(list(self.model.parameters()),lr=lr)
         self.lr_scheduler = MultiplicativeLR(self.optim, lambda e: 0.95)
@@ -203,7 +201,7 @@ class Trainer:
                 y = y.cuda()
                 mask = mask.cuda()
 
-            pred = self.model.classify(self.model(x, mask))
+            pred = self.model(x, mask)
             
             # calculate loss
             loss: torch.Tensor = self.loss(pred, y[:,None])
@@ -221,6 +219,8 @@ class Trainer:
             result = {
                 "loss": np_loss
             }
+
+            pred = self.model.classify(pred)
 
             np_pred = pred.cpu().detach().numpy().squeeze(axis=1)
             np_true = y.cpu().detach().numpy()
