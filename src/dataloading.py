@@ -12,6 +12,7 @@ import os
 import io
 from collections import Counter
 import pickle
+from enum import Enum
 from pathlib import Path
 from itertools import chain
 from typing import List, Tuple, Set, Callable, Dict
@@ -24,22 +25,29 @@ from torch.utils.data import Dataset
 
 from rouge import Rouge # https://github.com/pltrdy/rouge
 
-from preprocessing import load_verdict, TokenizationType
+from .preprocessing import load_verdict, TokenizationType
 # We use import as to be able to switch out the Tokenizer later on
-from preprocessing import Tokenizer as Tokenizer
-from coverage import find_optimal_coverage
+from .preprocessing import Tokenizer as Tokenizer
+from .coverage import find_optimal_coverage
 
 DATA_PATH = Path("data")/"dataset"
 MODEL_PATH = Path("model")
 NORM_DB_PATH = Path("data")/"databases"/"norms.db"
 
+class LossType(Enum):
+    BCE = 0
+
 class ExtractiveDataset(Dataset):
     """ Dataset used for the extractive summarization training """
 
-    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer, transform: Callable[[List[int]],List[int]]=None):
+    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer, loss_type: LossType, transform: Callable[[List[int]],List[int]]=None):
         self.verdicts = verdict_paths
         self.tokenizer = tokenizer
         self.db_path = Path("data")/"databases"/"extractive.db"
+
+        # Each loss needs different type of tensor as target...
+        if loss_type == LossType.BCE:
+            self.value, self.default, self.dtype = 1.0, 0.0, torch.float32
         # It is possible to use the transform function to cap the number of indices per sentence etc.
         self.transform = transform
 
@@ -53,18 +61,17 @@ class ExtractiveDataset(Dataset):
         for ind in chain(verdict["facts"], verdict["reasoning"]):
             x.append(self.__lam__(ind))
         
-        # TODO only used for the intial dataset test!
         assert len(x) > 0, verdict_path
         assert len(fact_ind) > 0 or len(reas_ind) > 0, verdict_path
 
         # We have to create our targets for the extractive summarization over the facts and reasoning, i.e. we have to combine both their targets
         # into one long tensor
         reasoning_offset = len(verdict["facts"])
-        y = torch.Tensor([0.0]*(len(x)))
+        y = torch.tensor([self.default]*(len(x)), dtype=self.dtype)
         for i in fact_ind:
-            y[i] = 1.0
+            y[i] = self.value
         for i in reas_ind:
-            y[i+reasoning_offset] = 1.0
+            y[i+reasoning_offset] = self.value
 
         return x, y
 

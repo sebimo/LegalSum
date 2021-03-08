@@ -21,10 +21,20 @@ class HierarchicalEncoder(nn.Module):
                  n_tokens: int = 50000,
                  activation: nn.Module = nn.ReLU(),
                  dropout: float = 0.0,
-                 embedding_layer: nn.Module=nn.Embedding):
+                 embedding_layer: nn.Module=nn.Embedding,
+                 attention: str="DOT"):
         super(HierarchicalEncoder, self).__init__()
         self.embedding_size = embedding_size
-        self.attention = Attention(self.embedding_size, AttentionType.DOT)
+        
+        assert attention in ["DOT", "BILINEAR", "ADDITIVE"]
+        if attention == "DOT":
+            self.attention = Attention(self.embedding_size, AttentionType.DOT)
+        elif attention == "BILINEAR":
+            self.attention = Attention(self.embedding_size, AttentionType.BILINEAR, attention_sizes=[100])
+        elif attention == "ADDITIVE":
+            self.attention = Attention(self.embedding_size, AttentionType.ADDITIVE, attention_sizes=[100, 100])
+        else:
+            raise ValueError("Attention type unknown: "+attention+"; Choose: DOT, BILINEAR, ADDITIVE")
         self.dropout = dropout
         self._activation = activation
         
@@ -36,9 +46,9 @@ class HierarchicalEncoder(nn.Module):
             self._activation,
         )
         self._classification = nn.Sequential(
-            nn.Linear(self.embedding_size, 1),
-            nn.Sigmoid()
+            nn.Linear(self.embedding_size, 1)
         )
+        self.sig = nn.Sigmoid()
     
     def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         X = self._embedding(X)
@@ -50,11 +60,11 @@ class HierarchicalEncoder(nn.Module):
         X = self.attention(X)
 
         X = self._activation(X)
+        X = self._classification(X)
         return X
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
-        y = self._classification(E)
-        return y
+        return self.sig(E)     
 
 class Attention(nn.Module):
 
