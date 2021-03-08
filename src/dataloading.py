@@ -34,6 +34,8 @@ DATA_PATH = Path("data")/"dataset"
 MODEL_PATH = Path("model")
 NORM_DB_PATH = Path("data")/"databases"/"norms.db"
 
+CUTOFF = 100
+
 class LossType(Enum):
     BCE = 0
 
@@ -332,6 +334,10 @@ def get_norms(db_path: Path=NORM_DB_PATH) -> Set[str]:
     cursor.execute("select distinct name from norms") 
     norms = set(map(lambda t: t[0], cursor.fetchall()))
     return norms
+
+def transform_cutoff(sentence: List[int]) -> List[int]:
+    """ Will restrict the length of a sentence by CUTOFF """
+    return sentence[:CUTOFF]
 
 if __name__ == "__main__":
     tok = Tokenizer(MODEL_PATH)
