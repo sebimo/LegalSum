@@ -20,7 +20,6 @@ class HierarchicalEncoder(nn.Module):
                  embedding_size: int = 200,
                  n_tokens: int = 50000,
                  activation: nn.Module = nn.ReLU(),
-                 dropout: float = 0.0,
                  embedding_layer: nn.Module=nn.Embedding,
                  attention: str="DOT"):
         super(HierarchicalEncoder, self).__init__()
@@ -41,7 +40,6 @@ class HierarchicalEncoder(nn.Module):
         # We might want to replace this with something different
         self._embedding = embedding_layer
         self._emb_layers = nn.Sequential(
-            nn.Dropout(p=self.dropout),
             nn.Linear(self.embedding_size, self.embedding_size),
             self._activation,
         )
@@ -149,11 +147,9 @@ class RNNEncoder(nn.Module):
                  layers = 1,
                  bidirectional = False,
                  activation: nn.Module = nn.ReLU(),
-                 dropout: float = 0.0,
                  embedding_layer: nn.Module=nn.Embedding):
         super(RNNEncoder, self).__init__()
         self.embedding_size = embedding_size
-        self.dropout = dropout
         self._activation = activation
         
         # We might want to replace this embedding layer with something different
@@ -193,12 +189,57 @@ class RNNEncoder(nn.Module):
 
 class CNNEncoder(nn.Module):
 
-    def __init__(self):
+    def __init__(self,
+                 embedding_size: int = 200,
+                 n_tokens: int = 50000,
+                 activation: nn.Module = nn.ReLU(),
+                 embedding_layer: nn.Module=nn.Embedding):
         super(CNNEncoder, self).__init__()
-        raise NotImplementedError
+        self.embedding_size = embedding_size
+        
+        self._activation = activation
+        
+        # We might want to replace this with something different
+        self._embedding = embedding_layer
+        self._emb_layers = nn.Sequential(
+            nn.Linear(self.embedding_size, self.embedding_size),
+            self._activation,
+        )
 
-    def forward(self, x):
-        raise NotImplementedError
+        self._conv = nn.Sequential(
+            nn.Conv1d(self.embedding_size, self.embedding_size/2, kernel_size=7, stride=1, padding=3),
+            nn.ReLU(),
+            nn.Conv1d(self.embedding_size/2, self.embedding_size/4, kernel_size=7, stride=1, padding=3),
+            nn.ReLU(),
+            nn.Conv1d(self.embedding_size/4, 10, kernel_size=7, stride=1, padding=3)
+        )
+
+        self._classification = nn.Sequential(
+            nn.Linear(10, 10),
+            nn.ReLU(),
+            nn.Linear(10,1)
+        )
+        self.sig = nn.Sigmoid()
+    
+    def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        X = self._embedding(X)
+        # Use the mask to exlude any embeddings of padded vectors
+        X = torch.mul(mask.unsqueeze(-1), X)
+
+        X = self._emb_layers(X)
+
+        X = torch.transpose(X, -1, -2)
+
+        X = self._conv(X)
+
+        X = torch.amax(X, dim=-2)
+
+        X = self._activation(X)
+        X = self._classification(X)
+        return X
+
+    def classify(self, E: torch.Tensor) -> torch.Tensor:
+        return self.sig(E) 
 
 def save_model(model: nn.Module, path: Path):
     torch.save(model.state_dict(), path)
