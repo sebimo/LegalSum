@@ -66,7 +66,7 @@ def calculate_confusion_matrix(y_true: np.array, y_pred: np.array) -> Dict[str, 
     return res
 
 def merge(batch_stats: Dict[str, Tuple[float, int]], stats: Dict[str, float]) -> Dict[str, Tuple[float, int]]:
-    """ Combines the local batch stats with the epoch stats """
+    """ Combines the local batch stats"""
     result = {}
     if len(batch_stats) == 0:
         for k in stats:
