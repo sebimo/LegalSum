@@ -207,11 +207,11 @@ class CNNEncoder(nn.Module):
         )
 
         self._conv = nn.Sequential(
-            nn.Conv1d(self.embedding_size, self.embedding_size/2, kernel_size=7, stride=1, padding=3),
+            nn.Conv1d(self.embedding_size, int(self.embedding_size/2), kernel_size=7, stride=1, padding=3),
             nn.ReLU(),
-            nn.Conv1d(self.embedding_size/2, self.embedding_size/4, kernel_size=7, stride=1, padding=3),
+            nn.Conv1d(int(self.embedding_size/2), int(self.embedding_size/4), kernel_size=7, stride=1, padding=3),
             nn.ReLU(),
-            nn.Conv1d(self.embedding_size/4, 10, kernel_size=7, stride=1, padding=3)
+            nn.Conv1d(int(self.embedding_size/4), 10, kernel_size=7, stride=1, padding=3)
         )
 
         self._classification = nn.Sequential(
@@ -232,7 +232,7 @@ class CNNEncoder(nn.Module):
 
         X = self._conv(X)
 
-        X = torch.amax(X, dim=-2)
+        X = torch.amax(X, dim=-1)
 
         X = self._activation(X)
         X = self._classification(X)
