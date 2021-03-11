@@ -16,13 +16,16 @@ class AttentionType(Enum):
     BILINEAR = 2
     ADDITIVE = 3
 
+# General difference between models: Encoder are just defined on a sentence per sentence basis, i.e. predictions are done without knowledge about other sentences
+# -> in the CrossEncoder other sentences are to some extend taken into account for the sentence embedding
+
 class HierarchicalEncoder(nn.Module):
 
     def __init__(self,
+                 embedding_layer: nn.Module,
                  embedding_size: int = 200,
                  n_tokens: int = 50000,
                  activation: nn.Module = nn.ReLU(),
-                 embedding_layer: nn.Module=nn.Embedding,
                  dropout: float=0.0,
                  attention: str="DOT"):
         super(HierarchicalEncoder, self).__init__()
@@ -142,15 +145,17 @@ class Attention(nn.Module):
         weights = self.__attention_softmax__(weights)
         return weights
 
+# This model is not feasible/does not work as the optimization eventually will reach an errorous state
+# This problem is a bit hard to debug as it can be related to the GPU or operating system
 class RNNEncoder(nn.Module):
 
     def __init__(self,
+                 embedding_layer: nn.Module,
                  embedding_size: int = 200,
                  n_tokens: int = 50000,
                  layers = 1,
                  bidirectional = False,
-                 activation: nn.Module = nn.ReLU(),
-                 embedding_layer: nn.Module=nn.Embedding):
+                 activation: nn.Module = nn.ReLU()):
         super(RNNEncoder, self).__init__()
         self.embedding_size = embedding_size
         self._activation = activation
@@ -193,10 +198,10 @@ class RNNEncoder(nn.Module):
 class CNNEncoder(nn.Module):
 
     def __init__(self,
+                 embedding_layer: nn.Module,
                  embedding_size: int = 200,
                  n_tokens: int = 50000,
-                 activation: nn.Module = nn.ReLU(),
-                 embedding_layer: nn.Module=nn.Embedding):
+                 activation: nn.Module = nn.ReLU()):
         super(CNNEncoder, self).__init__()
         self.embedding_size = embedding_size
         
@@ -244,10 +249,175 @@ class CNNEncoder(nn.Module):
     def classify(self, E: torch.Tensor) -> torch.Tensor:
         return self.sig(E) 
 
+# The following models are supersets of the previously defined ones, as they aggregate
+
+class HierarchicalCrossEncoder(nn.Module):
+
+    def __init__(self,
+                 embedding_layer: nn.Module,
+                 cross_sentence_layer: nn.Module,
+                 embedding_size: int = 100,
+                 cross_sentence_size: List[int] = [50, 50]
+                 activation: nn.Module = nn.ReLU(),
+                 attention: str="DOT"):
+        super(HierarchicalCrossEncoder, self).__init__()
+        self.embedding_size = embedding_size
+        self.cross_sentence_size = cross_sentence_size
+        assert self.cross_sentence_size[0] == self.embedding_size
+        
+        assert attention in ["DOT", "BILINEAR", "ADDITIVE"]
+        if attention == "DOT":
+            self.attention = Attention(self.embedding_size, AttentionType.DOT)
+        elif attention == "BILINEAR":
+            self.attention = Attention(self.embedding_size, AttentionType.BILINEAR, attention_sizes=[100])
+        elif attention == "ADDITIVE":
+            self.attention = Attention(self.embedding_size, AttentionType.ADDITIVE, attention_sizes=[100, 100])
+        else:
+            raise ValueError("Attention type unknown: "+attention+"; Choose: DOT, BILINEAR, ADDITIVE")
+        self.dropout = dropout
+        self._activation = activation
+        
+        self._embedding = embedding_layer
+        self._emb_layers = nn.Sequential(
+            nn.Linear(self.embedding_size, self.embedding_size),
+            self._activation,
+        )
+
+        self._cross_sentence_layer = cross_sentence_layer
+
+        self._classification = nn.Sequential(
+            nn.Linear(self.cross_sentence_size[1], 1)
+        )
+        self.sig = nn.Sigmoid()
+    
+    def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        X = self._embedding(X)
+        # Use the mask to exlude any embeddings of  padded vectors
+        X = torch.mul(mask.unsqueeze(-1), X)
+
+        X = self._emb_layers(X)
+
+        X = self.attention(X)
+
+        X = self._cross_sentence_layer(X)
+        X = self._activation(X)
+
+        X = self._classification(X)
+        return X
+
+    def classify(self, E: torch.Tensor) -> torch.Tensor:
+        return self.sig(E) 
+
+class CNNCrossEncoder(nn.Module):
+
+    def __init__(self,
+                 embedding_layer: nn.Module,
+                 cross_sentence_layer: nn.Module,
+                 embedding_size: int = 100,
+                 cross_sentence_size: List[int] = [50, 50],
+                 n_tokens: int = 50000,
+                 activation: nn.Module = nn.ReLU()):
+        super(CNNCrossEncoder, self).__init__()
+        self.embedding_size = embedding_size
+        self.cross_sentence_size = cross_sentence_size
+        
+        self._activation = activation
+        
+        # We might want to replace this with something different
+        self._embedding = embedding_layer
+        self._emb_layers = nn.Sequential(
+            nn.Linear(self.embedding_size, self.embedding_size),
+            self._activation,
+        )
+
+        self._conv = nn.Sequential(
+            nn.Conv1d(self.embedding_size, int(self.embedding_size/2), kernel_size=7, stride=1, padding=3),
+            nn.ReLU(),
+            nn.Conv1d(int(self.embedding_size/2), int(self.embedding_size/4), kernel_size=7, stride=1, padding=3),
+            nn.ReLU(),
+            nn.Conv1d(int(self.embedding_size/4), self.cross_sentence_size[0], kernel_size=7, stride=1, padding=3)
+        )
+
+        self._cross_sentence_layer = cross_sentence_layer
+
+        self._classification = nn.Sequential(
+            nn.Linear(self.cross_sentence_size[1], 10),
+            nn.ReLU(),
+            nn.Linear(10,1)
+        )
+        self.sig = nn.Sigmoid()
+    
+    def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        X = self._embedding(X)
+        # Use the mask to exlude any embeddings of padded vectors
+        X = torch.mul(mask.unsqueeze(-1), X)
+
+        X = self._emb_layers(X)
+
+        X = torch.transpose(X, -1, -2)
+
+        X = self._conv(X)
+
+        X = torch.amax(X, dim=-1)
+
+        X = self._cross_sentence_layer(X)
+
+        X = self._activation(X)
+        X = self._classification(X)
+        return X
+
+    def classify(self, E: torch.Tensor) -> torch.Tensor:
+        return self.sig(E) 
+
+
+class CrossSentenceCNN(nn.Module):
+    """ Module which will transfer information between nearby sentences -> decision about extraction should not be only based on sentence """
+    
+    def __init__(self,
+                 cross_sentence_size: List[int]= [100, 100]):
+        super(CrossSentenceCNN, self).__init__()
+        self.cross_sentence_size = cross_sentence_size
+
+        self._conv = nn.Sequential(
+            nn.Conv1d(self.cross_sentence_size[0], self.cross_sentence_size[0], kernel_size=7, stride=1, padding=3),
+            nn.ReLU(),
+            nn.Conv1d(self.cross_sentence_size[0], self.cross_sentence_size[1], kernel_size=7, stride=1, padding=3),
+            nn.ReLU(),
+            nn.Conv1d(self.cross_sentence_size[1], self.cross_sentence_size[1], kernel_size=7, stride=1, padding=3)
+        )
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return self._conv(X)
+
+
+class CrossSentenceRNN(nn.Module):
+    """ Module which will transfer information between sentences via a bidirectional RNN + some linear layer to reduce the resulting dimensionality """
+
+    def __init__(self,
+                 cross_sentence_size: List[int]= [100, 100]):
+        super(Cross_sentenceRNN, self).__init__()
+        self.cross_sentence_size = cross_sentence_size
+        self.bidirectional = True
+        self.directions = 2 if self.bidirectional else 1
+        self.layers = 1
+
+        self._gru = nn.GRU(self.cross_sentence_size[0], 
+                           self.cross_sentence_size[1], 
+                           num_layers=self.layers,
+                           batch_first=True,
+                           bidirectional=self.bidirectional)
+
+        self._linear = nn.Linear(self.cross_sentence_size[1]*self.directions, self.cross_sentence_size[1])
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        X = self._gru(X)
+        X = self._linear(X)
+        return X
+
 def save_model(model: nn.Module, path: Path):
     torch.save(model.state_dict(), path)
 
-def load_model(model: nn.Module, path: Path, device):
+def load_model(model: nn.Module, path: Path, device: torch.device):
     model.load_state_dict(torch.load(path, map_location=device))
     return model
 
@@ -288,10 +458,10 @@ def reload_model(parameters: Dict) -> nn.Module:
     
     # Create the model
     if parameters["model"] == "HIER":
-        model = HierarchicalEncoder(embedding_size, embedding_layer=embeddings, attention=parameters["attention"])
+        model = HierarchicalEncoder(embedding_layer=embeddings, embedding_size=embedding_size, attention=parameters["attention"])
     elif parameters["model"] == "RNN":
-        model = RNNEncoder(embedding_size=embedding_size, embedding_layer=embeddings)
+        model = RNNEncoder(embedding_layer=embeddings, embedding_size=embedding_size)
     elif parameters["model"] == "CNN":
-        model = CNNEncoder(embedding_size=embedding_size, embedding_layer=embeddings)
+        model = CNNEncoder(embedding_layer=embeddings, embedding_size=embedding_size)
     
-    model = load_model(model, Path(parameters["modelfile"], torch.device("cuda:0")))
+    model = load_model(model, Path(parameters["modelfile"]), torch.device("cuda:0")))
