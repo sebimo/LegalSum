@@ -4,10 +4,12 @@
 
 from pathlib import Path
 from enum import Enum
-from typing import List
+from typing import List, Dict
 
 import torch
 import torch.nn as nn
+
+from .embedding import GloVe, Word2Vec
 
 class AttentionType(Enum):
     DOT = 1
@@ -21,6 +23,7 @@ class HierarchicalEncoder(nn.Module):
                  n_tokens: int = 50000,
                  activation: nn.Module = nn.ReLU(),
                  embedding_layer: nn.Module=nn.Embedding,
+                 dropout: float=0.0,
                  attention: str="DOT"):
         super(HierarchicalEncoder, self).__init__()
         self.embedding_size = embedding_size
@@ -244,6 +247,51 @@ class CNNEncoder(nn.Module):
 def save_model(model: nn.Module, path: Path):
     torch.save(model.state_dict(), path)
 
-def load_model(model: nn.Module, path: Path, device: torch.device):
+def load_model(model: nn.Module, path: Path, device):
     model.load_state_dict(torch.load(path, map_location=device))
     return model
+
+def parse_run_parameters(filename: str) -> Dict:
+    split = filename.split("_")
+    parameters = {}
+    parameters["modelfile"] = "_".join(split[:5])+".model"
+    # TODO link this to the parameters from the logger
+    poss_params = set(["model", "lr", "abstractive", "embedding", "attention", "loss", "type"])
+    param_name = []
+    for s in split[5:]:
+        if s in poss_params:
+            param_name.append(s)
+        elif len(param_name) > 0:
+            parameters["_".join(param_name)] = s
+            param_name = []
+        else:
+            raise ValueError("Filename does not follow known format: "+filename)
+
+    # Change the types accordingly
+    if "lr" in parameters:
+        parameters["lr"] = float(parameters["lr"])
+    if "abstractive" in parameters:
+        parameters["abstractive"] = True if parameters["abstractive"] == 0 else False
+    if "attention" in parameters:
+        if parameters["attention"] is None:
+            del parameters["attention"]
+    return parameters
+
+def reload_model(parameters: Dict) -> nn.Module:
+    """ Based on the parameters from above recreate the model """
+    # Create the embeddings:
+    embedding_size = 100
+    if parameters["embedding"] == "glove":
+        embeddings = GloVe(embedding_size=embedding_size)
+    elif parameters["embedding"] == "word2vec":
+        embeddings = Word2Vec(embedding_size=embedding_size)
+    
+    # Create the model
+    if parameters["model"] == "HIER":
+        model = HierarchicalEncoder(embedding_size, embedding_layer=embeddings, attention=parameters["attention"])
+    elif parameters["model"] == "RNN":
+        model = RNNEncoder(embedding_size=embedding_size, embedding_layer=embeddings)
+    elif parameters["model"] == "CNN":
+        model = CNNEncoder(embedding_size=embedding_size, embedding_layer=embeddings)
+    
+    model = load_model(model, Path(parameters["modelfile"], torch.device("cuda:0")))
