@@ -4,7 +4,7 @@ from pathlib import Path
 
 import torch
 
-from ..dataloading import get_norm_sentences, get_norms, collate, ExtractiveDataset
+from ..dataloading import get_norm_sentences, get_norms, collate, ExtractiveDataset, LossType
 from ..preprocessing import Tokenizer as Tokenizer
 
 class TestNorms:
@@ -73,7 +73,7 @@ class TestDataloading:
         DATA_PATH = Path("src")/"testing"/"test_data"
         files = [DATA_PATH/file for file in os.listdir(DATA_PATH) if file.endswith(".json")]
         tok = Tokenizer(Path("model"))
-        dataset = ExtractiveDataset(files, tok)
+        dataset = ExtractiveDataset(files, tok, LossType.BCE)
         try:
             for x, y in dataset:
                 for i in range(y.shape[0]):

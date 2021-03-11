@@ -3,7 +3,8 @@ import torchtest
 import torch
 from torch.nn import Embedding
 
-from ..model import HierarchicalEncoder, RNNEncoder, Attention, AttentionType
+from ..model import HierarchicalEncoder, RNNEncoder, Attention, parse_run_parameters
+from ..embedding import GloVe
 
 class TestHierarchicalEncoder:
 
@@ -68,12 +69,13 @@ class TestRNNcuda:
 
 class TestRNNEncoder:
 
-    def setup(self, max_sent=200, max_token=100, embedding_size=200, n_tokens=500):
+    def setup(self, max_sent=200, max_token=100, embedding_size=100, n_tokens=500):
         self.max_sent = max_sent
         self.max_token = max_token
         self.embedding_size = embedding_size
         self.n_tokens = n_tokens
-        self.model = RNNEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens, layers=1)
+        self.embedding = GloVe(embedding_size=self.embedding_size)
+        self.model = RNNEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens, embedding_layer=self.embedding, layers=1)
 
     def setup_batch(self):
         self.setup()
@@ -81,7 +83,7 @@ class TestRNNEncoder:
         return batch
 
     def setup_indice_batch(self):
-        self.setup(max_sent=10, max_token=10, embedding_size=200, n_tokens=100)
+        self.setup(max_sent=10, max_token=10, embedding_size=100, n_tokens=100)
         batch = torch.zeros((self.max_sent, self.max_token), dtype=torch.long)
         for s in range(self.max_sent):
             for t in range(self.max_token):
@@ -98,12 +100,13 @@ class TestRNNEncoder:
 
 class TestHIERcuda:
 
-    def setup(self, max_sent=200, max_token=100, embedding_size=200, n_tokens=500):
+    def setup(self, max_sent=200, max_token=100, embedding_size=100, n_tokens=500):
         self.max_sent = max_sent
         self.max_token = max_token
         self.embedding_size = embedding_size
         self.n_tokens = n_tokens
-        self.model = RNNEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens, layers=1).cuda()
+        self.embedding = GloVe(embedding_size=self.embedding_size)
+        self.model = HierarchicalEncoder(embedding_size=self.embedding_size, n_tokens=self.n_tokens, embedding_layer=self.embedding).cuda()
 
     def setup_batch(self):
         self.setup()
@@ -111,7 +114,7 @@ class TestHIERcuda:
         return batch
 
     def setup_indice_batch(self):
-        self.setup(max_sent=10, max_token=10, embedding_size=200, n_tokens=100)
+        self.setup(max_sent=10, max_token=10, embedding_size=100, n_tokens=100)
         batch = torch.zeros((self.max_sent, self.max_token), dtype=torch.long)
         for s in range(self.max_sent):
             for t in range(self.max_token):
@@ -143,3 +146,29 @@ class TestAttention:
         r = a(self.batch)
         assert len(r.shape) == 2 and r.shape[1] == 200 and r.shape[0] == 1
         assert True
+
+class TestModelLoading:
+
+    def test_fileparsing(self):
+        filename = "01_03_2021__112503_model_HIER_lr_0.003184952816752174_abstractive_0_embedding_glove_attention_BILINEAR"
+        parameters = parse_run_parameters(filename)
+        res = {
+            "modelfile": "01_03_2021__112503.model",
+            "model": "HIER",
+            "lr": 0.003184952816752174,
+            "abstractive": False,
+            "embedding": "glove",
+            "attention": "BILINEAR"
+        }
+        assert parameters == res
+
+        filename = "09_03_2021__100342_model_RNN_lr_0.035803844608484355_abstractive_0_embedding_glove_attention_None_loss_type_BCE"
+        parameters = parse_run_parameters(filename)
+        res = {
+            "modelfile": "09_03_2021__100342.model",
+            "model": "RNN",
+            "lr": 0.035803844608484355,
+            "abstractive": False,
+            "embedding": "glove",
+            "loss_type": "BCE"
+        }
