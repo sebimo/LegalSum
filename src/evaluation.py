@@ -32,6 +32,11 @@ def evaluate_indices(labels: List[List[int]], predictions: List[List[int]]) -> L
     assert len(labels) == len(predictions)
     return rouge.get_scores(labels, predictions)
 
+def evaluate_prebuild(labels: List[str], predictions: List[str]) -> List[Dict[str, Dict[str, float]]]:
+    """ Same as the above, but we have already build the sentences from the tokens """
+    assert len(labels) == len(predictions)
+    return rouge.get_scores(labels, predictions)
+
 def set_metrics(metrics: List[str]=["rouge-1", "rouge-2", "rouge-l"]):
     """ Resets the metrics returned by evaluate """
     global rouge
