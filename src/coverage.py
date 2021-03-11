@@ -3,6 +3,8 @@ from functools import reduce
 from collections import defaultdict
 from typing import List, Tuple
 
+from .evaluation import evaluate_prebuild
+
 def find_optimal_coverage(guiding_principle: List[List[int]], 
                           facts: List[List[int]], 
                           reasoning: List[List[int]], 
@@ -41,5 +43,34 @@ def find_optimal_coverage(guiding_principle: List[List[int]],
                 gram2sentence[gram].add((1,index))
                 sentence2gram[(1,index)].add(gram)
 
+    # Given this length it is unfeasible to do an optimal selection
     return len(sentence2gram)
- 
+
+def find_greedy_coverage(guiding_principle: List[List[int]], 
+                         facts: List[List[int]], 
+                         reasoning: List[List[int]]) -> Tuple[List[int], List[int]]:
+    """ This method will go one by one through the verdict sentences and append them to the solution, if they can increase the Rouge-2 score """
+    # Used for the final score calculation
+    gp_ref = " ".join([j for i in guiding_principle for j in i])
+    sent_tokens = ""
+    best_score = 0.0
+
+    ind_facts = []
+    for i, sent in enumerate(facts):
+        test = sent_tokens + sent
+        score = evaluate_prebuild([gp_ref], [test])
+        if score[0]["rouge-2"]["f"] > best_score:
+            best_score = score[0]["rouge-2"]["f"]
+            sent_tokens = test
+            ind_facts.append(i)
+
+    ind_reas = []
+    for i, sent in enumerate(reasoning):
+        test = sent_tokens + sent
+        score = evaluate_prebuild([gp_ref], [test])
+        if score[0]["rouge-2"]["f"] > best_score:
+            best_score = score[0]["rouge-2"]["f"]
+            sent_tokens = test
+            ind_reas.append(i)
+    
+    return ind_facts, ind_reas

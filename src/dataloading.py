@@ -28,12 +28,13 @@ from rouge import Rouge # https://github.com/pltrdy/rouge
 from .preprocessing import load_verdict, TokenizationType
 # We use import as to be able to switch out the Tokenizer later on
 from .preprocessing import Tokenizer as Tokenizer
-from .coverage import find_optimal_coverage
+from .coverage import find_optimal_coverage, find_greedy_coverage
 
 DATA_PATH = Path("data")/"dataset"
 MODEL_PATH = Path("model")
 NORM_DB_PATH = Path("data")/"databases"/"norms.db"
 
+# Maximum length of a sentence
 CUTOFF = 100
 
 class LossType(Enum):
@@ -194,6 +195,36 @@ def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer, create_
     conn.close()
     return (facts, reasoning)
 
+def get_greedy_target_indices(verdict: Path, db_path: Path, tok: Tokenizer) -> Tuple[List[int]]:
+    """ Returns the indices for sentences in reasoning and facts, which have the highest overlap with a guiding principle sentences.
+        -> We do not want to dynamically compute this, but only once and write it to a database with:
+            1. verdict name (only the file name)
+            3. section (0 = facts, 1 = reasoning)
+            4. index (inside of the section)
+        Returns:
+            Tuple[List[index]] -- greedy selection of sentences form the verdict for maximal rouge score; for each segement one list: Tuple.0 == facts, Tuple.1 == reasoning
+
+        Attention: This is a "duplicate" method to the one above; difference: database will not be created if missing
+    """
+    file_name = verdict.name
+    # We will use sqlite, as it is pretty easy to integrate + port to other machines
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    tok_type = 1 if tok.get_type() == TokenizationType.SPACE else 2
+    
+    cursor.execute("select section, ind from labels where name=:file and tokenizer=:tok ;", {"file": file_name, "tok": tok_type})
+    res = cursor.fetchall()
+    facts = []
+    reasoning = []
+    for row in res:
+        if row[0] == 0:
+            facts.append(row[1])
+        else:
+            reasoning.append(row[1])
+
+    conn.close()
+    return (facts, reasoning)
+
 def create_ext_target_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_PATH):
     """ Creates the database used for querying the gold labels for the extractive summarization task. Based on a one-to-one mapping for the guiding principles sentences to verdict sentence. """
     print("Creating gold labels for extractive summarization:")
@@ -281,23 +312,24 @@ def create_ext_greedy_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_P
         But in our case we should be fine, as we only need to look at sentences which have a total overlap of 2-grams.
     """
     print("Creating gold labels for extractive summarization:")
-    """conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     try:
-        cursor.execute("create table labels (name text not null, tokenizer integer not null, section integer not null, ind integer not null, primary key (name,tokenizer));")
+        cursor.execute("create table labels (name text not null, tokenizer integer not null, section integer not null, ind integer not null, primary key (name,tokenizer,section,ind));")
         conn.commit()
     except sqlite3.OperationalError:
-        print("Resuming from previously build table")"""
+        print("Resuming from previously build table")
     
     counts = []
     for file in tqdm(os.listdir(data_folder), desc="Generating gold labels"):
         verdict = tok.tokenize_verdict(data_folder/file)
         tok_type = 1 if tok.get_type() == TokenizationType.SPACE else 2
 
-        indices = find_optimal_coverage(verdict["guiding_principle"], verdict["facts"], verdict["reasoning"])
-        counts.append((indices, len(verdict["facts"])+len(verdict["reasoning"])))
+        # We cannot find the optimal coverage as this is an NP-Hard problem and even the greedy selection might be unfeasible
+        #indices = find_optimal_coverage(verdict["guiding_principle"], verdict["facts"], verdict["reasoning"])
+        indices = find_greedy_coverage(verdict["guiding_principle"], verdict["facts"], verdict["reasoning"])
 
-        """if len(indices[0]) == 0 and len(indices[1]) == 0:        
+        if len(indices[0]) == 0 and len(indices[1]) == 0:        
             with io.open("logging/missing_ext_greedy_goldlabel.txt", "a+") as f:
                 f.write(file + "\n")
 
@@ -309,7 +341,7 @@ def create_ext_greedy_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_P
             cursor.execute("insert into labels values (?, ?, ?, ?);", (file, tok_type,  1, i))
         conn.commit()
     
-    conn.close()"""
+    conn.close()
     with open(Path("src")/"analysis"/"rouge_counts.pkl", "wb") as f:
         pickle.dump(counts, f)
 
@@ -343,6 +375,6 @@ if __name__ == "__main__":
     tok = Tokenizer(MODEL_PATH)
     #tok.create_token_id_mapping()
     #fix_data_split()
-    create_ext_target_db(Path("data")/"databases"/"extractive.db", tok)
-    #create_ext_greedy_db(Path("data")/"databases"/"extractive_greedy.db", tok)
+    #create_ext_target_db(Path("data")/"databases"/"extractive.db", tok)
+    create_ext_greedy_db(Path("data")/"databases"/"extractive_greedy.db", tok)
     
