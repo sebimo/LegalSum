@@ -257,7 +257,7 @@ class HierarchicalCrossEncoder(nn.Module):
                  embedding_layer: nn.Module,
                  cross_sentence_layer: nn.Module,
                  embedding_size: int = 100,
-                 cross_sentence_size: List[int] = [50, 50]
+                 cross_sentence_size: List[int] = [50, 50],
                  activation: nn.Module = nn.ReLU(),
                  attention: str="DOT"):
         super(HierarchicalCrossEncoder, self).__init__()
@@ -274,7 +274,6 @@ class HierarchicalCrossEncoder(nn.Module):
             self.attention = Attention(self.embedding_size, AttentionType.ADDITIVE, attention_sizes=[100, 100])
         else:
             raise ValueError("Attention type unknown: "+attention+"; Choose: DOT, BILINEAR, ADDITIVE")
-        self.dropout = dropout
         self._activation = activation
         
         self._embedding = embedding_layer
@@ -387,7 +386,10 @@ class CrossSentenceCNN(nn.Module):
         )
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        return self._conv(X)
+        X = torch.transpose(X[None,:,:], -1, -2)
+        X = self._conv(X)
+        X = torch.squeeze(X, dim=0)
+        return torch.transpose(X, -1, -2)
 
 
 class CrossSentenceRNN(nn.Module):
@@ -464,4 +466,4 @@ def reload_model(parameters: Dict) -> nn.Module:
     elif parameters["model"] == "CNN":
         model = CNNEncoder(embedding_layer=embeddings, embedding_size=embedding_size)
     
-    model = load_model(model, Path(parameters["modelfile"]), torch.device("cuda:0")))
+    model = load_model(model, Path(parameters["modelfile"]), torch.device("cuda:0"))
