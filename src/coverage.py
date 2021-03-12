@@ -51,13 +51,13 @@ def find_greedy_coverage(guiding_principle: List[List[int]],
                          reasoning: List[List[int]]) -> Tuple[List[int], List[int]]:
     """ This method will go one by one through the verdict sentences and append them to the solution, if they can increase the Rouge-2 score """
     # Used for the final score calculation
-    gp_ref = " ".join([j for i in guiding_principle for j in i])
+    gp_ref = " ".join([str(j) for i in guiding_principle for j in i])
     sent_tokens = ""
     best_score = 0.0
 
     ind_facts = []
     for i, sent in enumerate(facts):
-        test = sent_tokens + sent
+        test = sent_tokens + " ".join([str(i) for i in sent])
         score = evaluate_prebuild([gp_ref], [test])
         if score[0]["rouge-2"]["f"] > best_score:
             best_score = score[0]["rouge-2"]["f"]
@@ -66,7 +66,7 @@ def find_greedy_coverage(guiding_principle: List[List[int]],
 
     ind_reas = []
     for i, sent in enumerate(reasoning):
-        test = sent_tokens + sent
+        test = sent_tokens + " ".join([str(i) for i in sent])
         score = evaluate_prebuild([gp_ref], [test])
         if score[0]["rouge-2"]["f"] > best_score:
             best_score = score[0]["rouge-2"]["f"]
