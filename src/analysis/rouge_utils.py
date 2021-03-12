@@ -51,7 +51,7 @@ def verdict_score(file):
 
 def scores_same():
     """ Will calculate all the possible scores achievable, if we pick the same number of sentences as found in the guiding principle """
-    with Pool(16) as p:
+    with Pool(6) as p:
         verdict_score
         scores = p.map(verdict_score, os.listdir(DATA_PATH)[50000:])
 
@@ -59,7 +59,9 @@ def scores_same():
         pickle.dump(scores, f)
 
 def scores_greedy():
-    """ Will calculate all the possible scores achievable, if we greedily pick sentences """
+    """ Will calculate all the possible scores achievable, if we greedily pick sentences 
+        We should probably just take it from the extractive_greedy.db as we do not want to calculate this twice!
+    """
     scores = []
     lengths = []
     for file in tqdm(os.listdir(DATA_PATH)):
