@@ -333,7 +333,7 @@ def create_ext_greedy_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_P
             with io.open("logging/missing_ext_greedy_goldlabel.txt", "a+") as f:
                 f.write(file + "\n")
 
-        assert all(i > -1 for _, i in indices[0]) and all(i > -1 for _, i in indices[1])
+        assert all(i > -1 for i in indices[0]) and all(i > -1 for i in indices[1])
 
         for i in indices[0]:
             cursor.execute("insert into labels values (?, ?, ?, ?);", (file, tok_type, 0, i))
