@@ -278,6 +278,7 @@ class HierarchicalCrossEncoder(nn.Module):
         
         self._embedding = embedding_layer
         self._emb_layers = nn.Sequential(
+            nn.Dropout(p=0.2),
             nn.Linear(self.embedding_size, self.embedding_size),
             self._activation,
         )
@@ -285,6 +286,9 @@ class HierarchicalCrossEncoder(nn.Module):
         self._cross_sentence_layer = cross_sentence_layer
 
         self._classification = nn.Sequential(
+            nn.Dropout(p=0.2),
+            nn.Linear(self.cross_sentence_size[1], self.cross_sentence_size[1]),
+            nn.ReLU(),
             nn.Linear(self.cross_sentence_size[1], 1)
         )
         self.sig = nn.Sigmoid()
@@ -302,10 +306,12 @@ class HierarchicalCrossEncoder(nn.Module):
         X = self._activation(X)
 
         X = self._classification(X)
+
         return X
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
-        return self.sig(E) 
+        E = self.sig(E)
+        return E 
 
 class CNNCrossEncoder(nn.Module):
 
@@ -397,7 +403,7 @@ class CrossSentenceRNN(nn.Module):
 
     def __init__(self,
                  cross_sentence_size: List[int]= [100, 100]):
-        super(Cross_sentenceRNN, self).__init__()
+        super(CrossSentenceRNN, self).__init__()
         self.cross_sentence_size = cross_sentence_size
         self.bidirectional = True
         self.directions = 2 if self.bidirectional else 1
@@ -412,8 +418,9 @@ class CrossSentenceRNN(nn.Module):
         self._linear = nn.Linear(self.cross_sentence_size[1]*self.directions, self.cross_sentence_size[1])
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        X = self._gru(X)
+        X, _ = self._gru(X[None,:,:])
         X = self._linear(X)
+        X = torch.squeeze(X, dim=0)
         return X
 
 def save_model(model: nn.Module, path: Path):

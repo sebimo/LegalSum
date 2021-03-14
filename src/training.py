@@ -9,16 +9,17 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
-from torch.optim import SparseAdam, Adam
+from torch.optim import SparseAdam, Adam, SGD
 from torch.optim.lr_scheduler import MultiplicativeLR
 
 from .dataloading import ExtractiveDataset, collate, LossType
 from .evaluation import merge, merge_epoch, finalize_statistic, calculate_confusion_matrix
 from .model import save_model
+from .loss import HammingLossHinge, HammingLossLogistic, SubsetLossHinge, SubsetLossLogistic, CombinedLoss
 from .model_logging.logger import Logger
 
 # This threshold will be used to cut up the verdicts for extractive summarization, as it is not feasible to use all the sentences per verdict per train batch at the same time (at least for more complicated models)
-SENT_NUM_THRESHOLD = 64
+SENT_NUM_THRESHOLD = 300
 
 class Trainer:
 
@@ -47,9 +48,9 @@ class Trainer:
               loss: LossType,
               epochs: int= 10,
               lr: float= 5e-4,
-              patience: int=5,
+              patience: int=10,
               cuda: bool= True,
-              workers: int=4):
+              workers: int=1):
         """ Starts the training iteration for the given model and dataset
             Params:
                 epochs = number of iterations through the whole dataset
@@ -75,12 +76,20 @@ class Trainer:
         print(self.model)
 
         if loss == LossType.BCE:
-            pos_weight = torch.tensor([10.0])
-            if self.cuda:
-                pos_weight = pos_weight.cuda()
-            self.loss = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+            self.loss = nn.BCELoss()
+        elif loss == LossType.HAMM_HINGE:
+            self.loss = HammingLossHinge
+        elif loss == LossType.HAMM_LOGI:
+            self.loss = HammingLossLogistic
+        elif loss == LossType.SUBSET_HINGE:
+            self.loss = SubsetLossHinge
+        elif loss == LossType.SUBSET_LOGI:
+            self.loss = SubsetLossLogistic
 
-        self.optim = Adam(list(self.model.parameters()),lr=lr)
+        self.loss = CombinedLoss([HammingLossLogistic, nn.BCELoss()], [0.55, 0.45])
+
+
+        self.optim = Adam(self.model.parameters(),lr=lr)
         self.lr_scheduler = MultiplicativeLR(self.optim, lambda e: 0.95)
         self.start_epoch = 0
 
@@ -207,6 +216,7 @@ class Trainer:
                     mask = mask.cuda()
 
                 pred = self.model(x, mask)
+                pred = self.model.classify(pred)
                 
                 # calculate loss
                 loss: torch.Tensor = self.loss(pred, y[:,None])
@@ -214,7 +224,7 @@ class Trainer:
                     # backpropagation
                     loss.backward()
                     # We might want to do some gradient clipping
-                    # nn.utils.clip_grad_norm_(self.model.parameters(), 1e-2)
+                    #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
                     self.optim.step()
                     self.lr_scheduler.step()
                 
@@ -225,10 +235,9 @@ class Trainer:
                     "loss": np_loss
                 }
 
-                pred = self.model.classify(pred)
-
                 np_pred = pred.cpu().detach().numpy().squeeze(axis=1)
                 np_true = y.cpu().detach().numpy()
+
                 np_pred = np.where(np_pred < 0.5, 0., 1.)
                 assert np_pred.shape[0] > 0, "Predictions empty"+str(np_pred.shape)
                 assert np_true.shape[0] > 0, "Targets empty"+str(np_true.shape)

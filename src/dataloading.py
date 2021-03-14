@@ -39,6 +39,10 @@ CUTOFF = 100
 
 class LossType(Enum):
     BCE = 0
+    HAMM_HINGE = 1
+    HAMM_LOGI = 2
+    SUBSET_HINGE = 3
+    SUBSET_LOGI = 4
 
 class ExtractiveDataset(Dataset):
     """ Dataset used for the extractive summarization training """
@@ -50,6 +54,8 @@ class ExtractiveDataset(Dataset):
 
         # Each loss needs different type of tensor as target...
         if loss_type == LossType.BCE:
+            self.value, self.default, self.dtype = 1.0, 0.0, torch.float32
+        else:
             self.value, self.default, self.dtype = 1.0, 0.0, torch.float32
         # It is possible to use the transform function to cap the number of indices per sentence etc.
         self.transform = transform
