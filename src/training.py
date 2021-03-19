@@ -178,7 +178,7 @@ class Trainer:
                 for t, l in self.__abs_minibatch__(tar, leng):
                     # The model gets the targets, but will mask every word from the future; this way we can generate a word prediction for every position
                     # pred does only contain the values for the correct words
-                    pred = self.model.forward_batch(t, l, facts, facts_mask, reason, reason_mask)
+                    pred = self.model(t, l, facts, facts_mask, reason, reason_mask)
                     
                     # Accumulate loss over multiple batches/documents
                     loss -= torch.sum(torch.log(pred+1e-8))
