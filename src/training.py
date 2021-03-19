@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.optim import SparseAdam, Adam, SGD
 from torch.optim.lr_scheduler import MultiplicativeLR
 
-from .dataloading import ExtractiveDataset, collate, LossType
+from .dataloading import ExtractiveDataset, collate, collate_abs, LossType
 from .evaluation import merge, merge_epoch, finalize_statistic, calculate_confusion_matrix
 from .model import save_model
 from .loss import HammingLossHinge, HammingLossLogistic, SubsetLossHinge, SubsetLossLogistic, CombinedLoss
@@ -61,7 +61,7 @@ class Trainer:
                 workers = number of processes used for data loading
         """
         if self.abstractive:
-            raise NotImplementedError
+            col = collate_abs
         else:
             col = collate
 
@@ -118,8 +118,8 @@ class Trainer:
                     log_dict["val_"+k] = val_stats[k]
                 
                 for k in ["train_TP", "train_FP", "train_TN", "train_FN", "val_TP", "val_FP", "val_TN", "val_FN"]:
-                #for k in ["val_TP", "val_FP", "val_TN", "val_FN"]:
-                    del log_dict[k]
+                    if k in log_dict:
+                        del log_dict[k]
                 
                 # logging
                 self.logger.log_epoch(log_dict)
@@ -153,56 +153,51 @@ class Trainer:
                 stats = self.__process_extr_batch__(data)
             # The loss or other important metrics are saved to the 
             epoch_stats = merge_epoch(epoch_stats, stats)
+        self.lr_scheduler.step()
         return finalize_statistic(epoch_stats)
 
     def __process_abstr_batch__(self, data):
         batch_stats = {}
         # Each entry in data is one document containing an abitrary number of sentences
-        for t, l, f, f_m, r, r_m in data:
-            # target, lengths, facts, fact mask, reasoning, reasoning_mask, norms
-            # reset gradients
-            self.optim.zero_grad()
-            
-            # run model
-            if self.cuda:
-                t = t.cuda()
-                l = l.cuda()
-                f = f.cuda()
-                f_m = f_m.cuda()
-                r = r.cuda()
-                r_m = r_m.cuda()
+        for batch in data:
+            for tar, leng, facts, facts_mask, reason, reason_mask in batch:
+                # target, lengths, facts, fact mask, reasoning, reasoning_mask, norms
+                self.optim.zero_grad()
+                
+                # run model
+                if self.cuda:
+                    t = t.cuda()
+                    l = l.cuda()
+                    f = f.cuda()
+                    f_m = f_m.cuda()
+                    r = r.cuda()
+                    r_m = r_m.cuda()
 
-            # The model gets the targets, but will mask every word from the future; this way we can generate a word prediction for every position
-            pred = self.model.forward_batch(t, l, f, f_m, r, r_m)
-            
-            # calculate loss
-            # TODO accumulate loss over multiple batches/documents
-            loss: torch.Tensor = self.loss(pred, y[:,None])
-            if self.train_mode:
-                # backpropagation
-                loss.backward()
-                # We might want to do some gradient clipping
-                #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
-                self.optim.step()
-                self.lr_scheduler.step()
-            
-            # Identify which statistics are pushed to the epoch method
-            # evaluate batch
-            np_loss = loss.cpu().detach().numpy()
-            result = {
-                "loss": np_loss
-            }
+                loss = torch.zeros(1)
+                # Sentence for sentence generation
+                for t, l in self.__abs_minibatch__(tar, leng):
+                    # The model gets the targets, but will mask every word from the future; this way we can generate a word prediction for every position
+                    # pred does only contain the values for the correct words
+                    pred = self.model.forward_batch(t, l, facts, facts_mask, reason, reason_mask)
+                    
+                    # Accumulate loss over multiple batches/documents
+                    loss -= torch.sum(torch.log(pred+1e-8))
+                if self.train_mode:
+                    # backpropagation
+                    loss.backward()
+                    # We might want to do some gradient clipping
+                    #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+                    self.optim.step()
+                    
+                
+                # Identify which statistics are pushed to the epoch method
+                # evaluate batch
+                np_loss = loss.cpu().detach().numpy()
+                result = {
+                    "loss": np_loss
+                }
 
-            np_pred = pred.cpu().detach().numpy().squeeze(axis=1)
-            np_true = y.cpu().detach().numpy()
-
-            np_pred = np.where(np_pred < 0.5, 0., 1.)
-            assert np_pred.shape[0] > 0, "Predictions empty"+str(np_pred.shape)
-            assert np_true.shape[0] > 0, "Targets empty"+str(np_true.shape)
-            assert np_true.shape == np_pred.shape, "Shape mismatch"+str(np_true.shape) +" != "+str(np_pred.shape)
-            result.update(calculate_confusion_matrix(np_true, np_pred))
-
-            batch_stats = merge(batch_stats, result)
+                batch_stats = merge(batch_stats, result)
 
         return batch_stats
     
@@ -236,7 +231,6 @@ class Trainer:
                     # We might want to do some gradient clipping
                     #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
                     self.optim.step()
-                    self.lr_scheduler.step()
                 
                 # Identify which statistics are pushed to the epoch method
                 # evaluate batch
@@ -266,6 +260,13 @@ class Trainer:
         assert len(x_splits) == len(y_splits) == len(mask_splits)
         for x, y, mask in zip(x_splits, y_splits, mask_splits):
             yield x, y, mask
+
+    def __abs_minibatch__(self, target: torch.Tensor, length: torch.Tensor):
+        print("------------")
+        print(target.shape)
+        for t, l in zip(torch.split(target, 1), torch.split(length, 1)):
+            print(t.shape)
+            yield t, l
 
     def __save_model__(self):
         model_file = Path("model")/(self.logger.experiment + ".model")
