@@ -48,9 +48,9 @@ class Trainer:
               loss: LossType,
               epochs: int= 10,
               lr: float= 5e-4,
-              patience: int=10,
+              patience: int=5,
               cuda: bool= True,
-              workers: int=1):
+              workers: int=4):
         """ Starts the training iteration for the given model and dataset
             Params:
                 epochs = number of iterations through the whole dataset
@@ -86,7 +86,8 @@ class Trainer:
         elif loss == LossType.SUBSET_LOGI:
             self.loss = SubsetLossLogistic
 
-        self.loss = CombinedLoss([HammingLossLogistic, nn.BCELoss()], [0.55, 0.45])
+        if loss != LossType.BCE:
+            self.loss = CombinedLoss([self.loss, nn.BCELoss()], [0.55, 0.45])
 
 
         self.optim = Adam(self.model.parameters(),lr=lr)
@@ -155,47 +156,55 @@ class Trainer:
         return finalize_statistic(epoch_stats)
 
     def __process_abstr_batch__(self, data):
-        # reset gradients
-        self.optim.zero_grad()
+        batch_stats = {}
+        # Each entry in data is one document containing an abitrary number of sentences
+        for t, l, f, f_m, r, r_m in data:
+            # target, lengths, facts, fact mask, reasoning, reasoning_mask, norms
+            # reset gradients
+            self.optim.zero_grad()
+            
+            # run model
+            if self.cuda:
+                t = t.cuda()
+                l = l.cuda()
+                f = f.cuda()
+                f_m = f_m.cuda()
+                r = r.cuda()
+                r_m = r_m.cuda()
 
-        # run model
-        # TODO based on the dataloader this needs to be changed
-        raise NotImplementedError
-        x, y = data
-        if self.cuda():
-            x = x.cuda()
-            y = y.cuda()
+            # The model gets the targets, but will mask every word from the future; this way we can generate a word prediction for every position
+            pred = self.model.forward_batch(t, l, f, f_m, r, r_m)
+            
+            # calculate loss
+            # TODO accumulate loss over multiple batches/documents
+            loss: torch.Tensor = self.loss(pred, y[:,None])
+            if self.train_mode:
+                # backpropagation
+                loss.backward()
+                # We might want to do some gradient clipping
+                #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+                self.optim.step()
+                self.lr_scheduler.step()
+            
+            # Identify which statistics are pushed to the epoch method
+            # evaluate batch
+            np_loss = loss.cpu().detach().numpy()
+            result = {
+                "loss": np_loss
+            }
 
-        # TODO if we are in the abstractive case, this needs to change a bit
-        pred = self.model.classify(self.model(x))
-        
-        # calculate loss
-        loss: torch.Tensor = self.loss(pred, y)
-        if self.train_mode:
-            # backpropagation
-            loss.backward()
-            # We might want to do some gradient clipping
-            # nn.utils.clip_grad_norm_(self.model.parameters(), 1e-2)
-            self.optim.step()
-            self.lr_scheduler.step()
-        
-        # Identify which statistics are pushed to the epoch method
-        # evaluate batch
-        np_loss = loss.cpu().detach().numpy()
-        np_pred = pred.cpu().detach().numpy()
-        np_true = y.cpu().detach().numpy()
+            np_pred = pred.cpu().detach().numpy().squeeze(axis=1)
+            np_true = y.cpu().detach().numpy()
 
-        result = {
-            "loss": np_loss[0]
-        }
-        
-        # TODO calculate the rouge score form the 
-        rouge = {
-            "rouge-1": 0.0
-        }
-        result.update(rouge)
+            np_pred = np.where(np_pred < 0.5, 0., 1.)
+            assert np_pred.shape[0] > 0, "Predictions empty"+str(np_pred.shape)
+            assert np_true.shape[0] > 0, "Targets empty"+str(np_true.shape)
+            assert np_true.shape == np_pred.shape, "Shape mismatch"+str(np_true.shape) +" != "+str(np_pred.shape)
+            result.update(calculate_confusion_matrix(np_true, np_pred))
 
-        return result
+            batch_stats = merge(batch_stats, result)
+
+        return batch_stats
     
     def __process_extr_batch__(self, data):   
         batch_stats = {}
@@ -219,6 +228,7 @@ class Trainer:
                 pred = self.model.classify(pred)
                 
                 # calculate loss
+                # TODO accumulate loss over multiple batches/documents
                 loss: torch.Tensor = self.loss(pred, y[:,None])
                 if self.train_mode:
                     # backpropagation
