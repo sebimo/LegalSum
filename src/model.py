@@ -68,7 +68,10 @@ class HierarchicalEncoder(nn.Module):
         return X
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
-        return self.sig(E)     
+        return self.sig(E)  
+
+    def get_name(self):
+        return "HIER"   
 
 class Attention(nn.Module):
 
@@ -195,6 +198,9 @@ class RNNEncoder(nn.Module):
     def classify(self, E: torch.Tensor) -> torch.Tensor:
         return self.sig(E)
 
+    def get_name(self):
+        return "RNN"
+
 class CNNEncoder(nn.Module):
 
     def __init__(self,
@@ -248,6 +254,9 @@ class CNNEncoder(nn.Module):
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
         return self.sig(E) 
+
+    def get_name(self):
+        return "CNN"
 
 # The following models are supersets of the previously defined ones, as they aggregate
 
@@ -313,6 +322,9 @@ class HierarchicalCrossEncoder(nn.Module):
         E = self.sig(E)
         return E 
 
+    def get_name(self):
+        return "HIER"+self._cross_sentence_layer.get_name()
+
 class CNNCrossEncoder(nn.Module):
 
     def __init__(self,
@@ -374,6 +386,9 @@ class CNNCrossEncoder(nn.Module):
     def classify(self, E: torch.Tensor) -> torch.Tensor:
         return self.sig(E) 
 
+    def get_name(self):
+        return "CNN"+self._cross_sentence_layer.get_name()
+
 
 class CrossSentenceCNN(nn.Module):
     """ Module which will transfer information between nearby sentences -> decision about extraction should not be only based on sentence """
@@ -396,6 +411,9 @@ class CrossSentenceCNN(nn.Module):
         X = self._conv(X)
         X = torch.squeeze(X, dim=0)
         return torch.transpose(X, -1, -2)
+
+    def get_name(self):
+        return "_CNN"
 
 
 class CrossSentenceRNN(nn.Module):
@@ -422,6 +440,33 @@ class CrossSentenceRNN(nn.Module):
         X = self._linear(X)
         X = torch.squeeze(X, dim=0)
         return X
+
+    def get_name(self):
+        return "_RNN"
+
+class AbstractiveModel(nn.Module):
+
+    def __init__(self,
+                 fact_encoder: nn.Module,
+                 reason_encoder: nn.Module,
+                 prev_encoder: nn.Module,
+                 decoder: nn.Module,
+                 num_tokens: int=50000                 
+                ):
+        super(AbstractiveModel, self).__init__()
+        self.num_tokens = num_tokens
+        self.fact_encoder = fact_encoder
+        self.reason_encoder = reason_encoder
+        self.decoder = decoder
+        self.prev_encoder = prev_encoder
+
+    def forward_batch(self, target, length, facts, facts_mask, reason, reason_mask):
+        f_tensor = self.fact_encoder(facts, facts_mask)
+        r_tensor = self.reason_encoder(reason, reason_mask)
+        
+        p_tensor = self.prev_encoder(target)
+
+        return self.decoder(f_tensor, r_tensor, p_tensor)
 
 def save_model(model: nn.Module, path: Path):
     torch.save(model.state_dict(), path)
