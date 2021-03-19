@@ -47,10 +47,10 @@ class LossType(Enum):
 class ExtractiveDataset(Dataset):
     """ Dataset used for the extractive summarization training """
 
-    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer, loss_type: LossType, transform: Callable[[List[int]],List[int]]=None):
+    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer, loss_type: LossType, transform: Callable[[List[int]],List[int]]=None, database: str="extractive.db"):
         self.verdicts = verdict_paths
         self.tokenizer = tokenizer
-        self.db_path = Path("data")/"databases"/"extractive.db"
+        self.db_path = Path("data")/"databases"/database
 
         # Each loss needs different type of tensor as target...
         if loss_type == LossType.BCE:
@@ -94,6 +94,51 @@ class ExtractiveDataset(Dataset):
         else:
             return torch.LongTensor(ind)
 
+class AbstractiveDataset(Dataset):
+    """ Dataset used for the abstractive summarization training """
+
+    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer, transform: Callable[[List[int]],List[int]]=None, load_norms: bool=False):
+        self.verdicts = verdict_paths
+        self.tokenizer = tokenizer
+        self.load_norms = load_norms
+
+        # Each loss needs different type of tensor as target...
+        if loss_type == LossType.BCE:
+            self.value, self.default, self.dtype = 1.0, 0.0, torch.float32
+        else:
+            self.value, self.default, self.dtype = 1.0, 0.0, torch.float32
+        # It is possible to use the transform function to cap the number of indices per sentence etc.
+        self.transform = transform
+
+    def __getitem__(self, index: int):
+        verdict_path = self.verdicts[index]
+        verdict = self.tokenizer.tokenize_verdict(verdict_path)
+        
+        # Define collate function that can deal with variable list lengths
+        f = []
+        for ind in verdict["facts"]:
+            f.append(self.__lam__(ind))
+
+        r = []
+        for ind in verdict["reasoning"]:
+            r.append(self.__lam__(ind))
+        
+        y = []
+        for ind in verdict["guiding_principle"]:
+            y.append(self.__lam__(ind))
+
+        return f, r, y
+
+    def __len__(self):
+        return len(self.verdicts)
+
+    def __lam__(self, ind: List[int]) -> torch.LongTensor:
+        # Define this lambda function as we otherwise cannot use multiple workers for dataloading
+        if self.transform is not None:
+            return torch.LongTensor(self.transform(ind))
+        else:
+            return torch.LongTensor(ind)
+
 def collate(batch: List[Tuple[List[torch.Tensor], torch.Tensor]]) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
     """ Will transform the given sentence list (each entry in the first list represents a document; this document contains various number of sentences), to 
         one sentence tensor with all sentences being padded to the same length.
@@ -122,6 +167,32 @@ def collate(batch: List[Tuple[List[torch.Tensor], torch.Tensor]]) -> List[Tuple[
         res.append((x,t,mask))
     return res
 
+def collate_abs(batch: List[Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]]) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """ Will transform the given sentence list (each entry in the first list represents a document; sentences from: facts, reasoning, guiding_principle, norms), each to 
+        one sentence tensor with all sentences being padded to the same length.
+        Returns:
+            List[Tuple[
+                targets: indices for target words, each row is one sentence,
+                length of target sentence,
+                facts: indices of facts,
+                facts_mask: mask introduced by padding,
+                reasoning: indices of reasoning,
+                reasoning_mask: mask introduced by padding,
+                norms: indices for norm
+            ]]
+    """
+    res = []
+    for doc in batch:
+        t = torch.nn.utils.rnn.pad_sequence(doc[2], batch_first=True)
+        l = torch.tensor([sent.shape[0] for sent in doc[2]])
+
+        f = torch.nn.utils.rnn.pad_sequence(doc[0], batch_first=True)
+        f_m = (f!=0)
+        r = torch.nn.utils.rnn.pad_sequence(doc[1], batch_first=True)
+        r_m = (r!=0)
+        res.append(t, l, f, f_m, r, r_m)
+    
+    return res
 
 # Fix train, val, test split
 def fix_data_split(percentage: List[float]=[0.8,0.1,0.1]):
@@ -148,14 +219,65 @@ def fix_data_split(percentage: List[float]=[0.8,0.1,0.1]):
     with io.open(MODEL_PATH/"test_files.pkl", "wb") as f:
         pickle.dump(test_files, f)
 
+def get_greedy_files():
+    """ Will create new train_files and val_files; only those with a valid label in extractive_greedy.db """
+    tok =  Tokenizer(Path("model"), normalize=True)
+    with io.open(MODEL_PATH/"train_files.pkl", "rb") as f:
+        train_files =  pickle.load(f)
+    dataset = ExtractiveDataset(train_files, tok, loss_type=LossType.BCE, database="extractive_greedy.db")
+    res_train_files = []
+    for i, file in tqdm(enumerate(train_files)):
+        try:
+            _ = dataset[i]
+            res_train_files.append(file)
+        except:
+            pass
+
+    print("New train:", len(res_train_files), "; Old train:", len(train_files))
+    final_dataset = ExtractiveDataset(res_train_files, tok, loss_type=LossType.BCE, database="extractive_greedy.db")
+    for _ in tqdm(final_dataset):
+        pass
+
+    with io.open(MODEL_PATH/"val_files.pkl", "rb") as f:
+        val_files = pickle.load(f)
+    dataset = ExtractiveDataset(val_files, tok, loss_type=LossType.BCE, database="extractive_greedy.db")
+    res_val_files = []
+    for i, file in tqdm(enumerate(val_files)):
+        try:
+            _ = dataset[i]
+            res_val_files.append(file)
+        except:
+            pass
+
+    print("New train:", len(res_val_files), "; Old train:", len(val_files))
+    final_dataset = ExtractiveDataset(res_val_files, tok, loss_type=LossType.BCE, database="extractive_greedy.db")
+    for _ in tqdm(final_dataset):
+        pass
+
+    with io.open(MODEL_PATH/"train_greedy_files.pkl", "wb") as f:
+        pickle.dump(res_train_files, f)
+
+    with io.open(MODEL_PATH/"val_greedy_files.pkl", "wb") as f:
+        pickle.dump(res_val_files, f)
+
 def get_train_files():
     """ Returns all the files previously selected to be used for training. """
     with io.open(MODEL_PATH/"train_files.pkl", "rb") as f:
         return pickle.load(f)
 
+def get_greedy_train_files():
+    """ Returns all the files previously selected to be used for greedy training (via get_greedy_files, i.e. subset of the total train_files) """
+    with io.open(MODEL_PATH/"train_greedy_files.pkl", "rb") as f:
+        return pickle.load(f)
+
 def get_val_files():
     """ Returns all the files previously selected to be used for validation. """
     with io.open(MODEL_PATH/"val_files.pkl", "rb") as f:
+        return pickle.load(f)
+
+def get_greedy_val_files():
+    """ Returns all the files previously selected to be used for greedy validation (via get_greedy_files, i.e. subset of the total val_files) """
+    with io.open(MODEL_PATH/"val_greedy_files.pkl", "rb") as f:
         return pickle.load(f)
 
 def get_test_files():
@@ -172,45 +294,6 @@ def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer, create_
             4. index (inside of the section)
         Returns:
             Tuple[List[index]] -- for all guiding principles in verdict one sentence; for each segement one list: Tuple.0 == facts, Tuple.1 == reasoning
-    """
-    file_name = verdict.name
-    # We will use sqlite, as it is pretty easy to integrate + port to other machines
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    tok_type = 1 if tok.get_type() == TokenizationType.SPACE else 2
-    # Query db for info
-    try:
-        cursor.execute("select section, ind from labels where name=:file and tokenizer=:tok ;", {"file": file_name, "tok": tok_type})
-        res = cursor.fetchall()
-    except sqlite3.OperationalError:
-        # If this does not work, the table needs to be created + populated
-        if create_missing_db:
-            create_ext_target_db(db_path, tok)
-    
-    # Re-run the query
-    cursor.execute("select section, ind from labels where name=:file and tokenizer=:tok ;", {"file": file_name, "tok": tok_type})
-    res = cursor.fetchall()
-    facts = []
-    reasoning = []
-    for row in res:
-        if row[0] == 0:
-            facts.append(row[1])
-        else:
-            reasoning.append(row[1])
-
-    conn.close()
-    return (facts, reasoning)
-
-def get_greedy_target_indices(verdict: Path, db_path: Path, tok: Tokenizer) -> Tuple[List[int]]:
-    """ Returns the indices for sentences in reasoning and facts, which have the highest overlap with a guiding principle sentences.
-        -> We do not want to dynamically compute this, but only once and write it to a database with:
-            1. verdict name (only the file name)
-            3. section (0 = facts, 1 = reasoning)
-            4. index (inside of the section)
-        Returns:
-            Tuple[List[index]] -- greedy selection of sentences form the verdict for maximal rouge score; for each segement one list: Tuple.0 == facts, Tuple.1 == reasoning
-
-        Attention: This is a "duplicate" method to the one above; difference: database will not be created if missing
     """
     file_name = verdict.name
     # We will use sqlite, as it is pretty easy to integrate + port to other machines
