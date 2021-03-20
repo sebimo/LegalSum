@@ -41,30 +41,30 @@ class HierarchicalEncoder(nn.Module):
         else:
             raise ValueError("Attention type unknown: "+attention+"; Choose: DOT, BILINEAR, ADDITIVE")
         self.dropout = dropout
-        self._activation = activation
+        self.activation = activation
         
         # We might want to replace this with something different
-        self._embedding = embedding_layer
-        self._emb_layers = nn.Sequential(
+        self.embedding = embedding_layer
+        self.emb_layers = nn.Sequential(
             nn.Linear(self.embedding_size, self.embedding_size),
-            self._activation,
+            self.activation,
         )
-        self._classification = nn.Sequential(
+        self.classification = nn.Sequential(
             nn.Linear(self.embedding_size, 1)
         )
         self.sig = nn.Sigmoid()
     
     def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        X = self._embedding(X)
+        X = self.embedding(X)
         # Use the mask to exlude any embeddings of  padded vectors
         X = torch.mul(mask.unsqueeze(-1), X)
 
-        X = self._emb_layers(X)
+        X = self.emb_layers(X)
 
         X = self.attention(X)
 
-        X = self._activation(X)
-        X = self._classification(X)
+        X = self.activation(X)
+        X = self.classification(X)
         return X
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
@@ -92,7 +92,7 @@ class Attention(nn.Module):
         self.attention_type = attention_type
         self.attention_sizes = attention_sizes
         self.setup_attention()
-        self.__attention_softmax__ = nn.Softmax(dim=-1)
+        self.attention_softmax__ = nn.Softmax(dim=-1)
         assert self.attention in [self.dot_attention, self.bilinear_attention, self.additive_attention]
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -130,14 +130,14 @@ class Attention(nn.Module):
         """ e_i = s^T h_i """   
         weights = self.s(X)
         # We need to normalize them:
-        weights = self.__attention_softmax__(weights)
+        weights = self.attention_softmax__(weights)
         return weights
 
     def bilinear_attention(self, X: torch.Tensor) -> torch.Tensor:
         """ e_i = s^T W h_i """
         weights = self.s(self.W(X))
         # We need to normalize them:
-        weights = self.__attention_softmax__(weights)
+        weights = self.attention_softmax__(weights)
         return weights
 
     def additive_attention(self, X: torch.Tensor) -> torch.Tensor:
@@ -145,7 +145,7 @@ class Attention(nn.Module):
         weights = self.W1(X) + self.W2(self.s).unsqueeze_(0)
         weights = self.tanh(weights)
         weights = self.v(weights)
-        weights = self.__attention_softmax__(weights)
+        weights = self.attention_softmax__(weights)
         return weights
 
 # This model is not feasible/does not work as the optimization eventually will reach an errorous state
@@ -161,10 +161,10 @@ class RNNEncoder(nn.Module):
                  activation: nn.Module = nn.ReLU()):
         super(RNNEncoder, self).__init__()
         self.embedding_size = embedding_size
-        self._activation = activation
+        self.activation = activation
         
         # We might want to replace this embedding layer with something different
-        self._embedding = embedding_layer
+        self.embedding = embedding_layer
         self.layers = layers
         self.bidirectional = bidirectional
 
@@ -173,13 +173,13 @@ class RNNEncoder(nn.Module):
         self.reduction1 = nn.Linear(self.gru_size, self.embedding_size)
         self.reduction2 = nn.Linear(self.embedding_size, self.embedding_size)
 
-        self._classification = nn.Sequential(
+        self.classification = nn.Sequential(
             nn.Linear(self.embedding_size, 1)
         )
         self.sig = nn.Sigmoid()
 
     def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        X = self._embedding(X)
+        X = self.embedding(X)
         # Use the mask to exlude any embeddings of  padded vectors
         X = torch.mul(mask.unsqueeze(-1), X)
 
@@ -187,11 +187,11 @@ class RNNEncoder(nn.Module):
         X, _ = self.gru1(X)
         # Take last element as embedding for sentence
         X = self.reduction1(X[:,-1,:])
-        X = self._activation(X)
+        X = self.activation(X)
 
         X = self.reduction2(X)
-        X = self._activation(X)
-        X = self._classification(X)
+        X = self.activation(X)
+        X = self.classification(X)
 
         return X
 
@@ -211,16 +211,16 @@ class CNNEncoder(nn.Module):
         super(CNNEncoder, self).__init__()
         self.embedding_size = embedding_size
         
-        self._activation = activation
+        self.activation = activation
         
         # We might want to replace this with something different
-        self._embedding = embedding_layer
-        self._emb_layers = nn.Sequential(
+        self.embedding = embedding_layer
+        self.emb_layers = nn.Sequential(
             nn.Linear(self.embedding_size, self.embedding_size),
-            self._activation,
+            self.activation,
         )
 
-        self._conv = nn.Sequential(
+        self.conv = nn.Sequential(
             nn.Conv1d(self.embedding_size, int(self.embedding_size/2), kernel_size=7, stride=1, padding=3),
             nn.ReLU(),
             nn.Conv1d(int(self.embedding_size/2), int(self.embedding_size/4), kernel_size=7, stride=1, padding=3),
@@ -228,7 +228,7 @@ class CNNEncoder(nn.Module):
             nn.Conv1d(int(self.embedding_size/4), 10, kernel_size=7, stride=1, padding=3)
         )
 
-        self._classification = nn.Sequential(
+        self.classification = nn.Sequential(
             nn.Linear(10, 10),
             nn.ReLU(),
             nn.Linear(10,1)
@@ -236,20 +236,20 @@ class CNNEncoder(nn.Module):
         self.sig = nn.Sigmoid()
     
     def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        X = self._embedding(X)
+        X = self.embedding(X)
         # Use the mask to exlude any embeddings of padded vectors
         X = torch.mul(mask.unsqueeze(-1), X)
 
-        X = self._emb_layers(X)
+        X = self.emb_layers(X)
 
         X = torch.transpose(X, -1, -2)
 
-        X = self._conv(X)
+        X = self.conv(X)
 
         X = torch.amax(X, dim=-1)
 
-        X = self._activation(X)
-        X = self._classification(X)
+        X = self.activation(X)
+        X = self.classification(X)
         return X
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
@@ -283,18 +283,18 @@ class HierarchicalCrossEncoder(nn.Module):
             self.attention = Attention(self.embedding_size, AttentionType.ADDITIVE, attention_sizes=[100, 100])
         else:
             raise ValueError("Attention type unknown: "+attention+"; Choose: DOT, BILINEAR, ADDITIVE")
-        self._activation = activation
+        self.activation = activation
         
-        self._embedding = embedding_layer
-        self._emb_layers = nn.Sequential(
+        self.embedding = embedding_layer
+        self.emb_layers = nn.Sequential(
             nn.Dropout(p=0.2),
             nn.Linear(self.embedding_size, self.embedding_size),
-            self._activation,
+            self.activation,
         )
 
-        self._cross_sentence_layer = cross_sentence_layer
+        self.cross_sentence_layer = cross_sentence_layer
 
-        self._classification = nn.Sequential(
+        self.classification = nn.Sequential(
             nn.Dropout(p=0.2),
             nn.Linear(self.cross_sentence_size[1], self.cross_sentence_size[1]),
             nn.ReLU(),
@@ -303,18 +303,18 @@ class HierarchicalCrossEncoder(nn.Module):
         self.sig = nn.Sigmoid()
     
     def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        X = self._embedding(X)
+        X = self.embedding(X)
         # Use the mask to exlude any embeddings of  padded vectors
         X = torch.mul(mask.unsqueeze(-1), X)
 
-        X = self._emb_layers(X)
+        X = self.emb_layers(X)
 
         X = self.attention(X)
 
-        X = self._cross_sentence_layer(X)
-        X = self._activation(X)
+        X = self.cross_sentence_layer(X)
+        X = self.activation(X)
 
-        X = self._classification(X)
+        X = self.classification(X)
 
         return X
 
@@ -323,7 +323,7 @@ class HierarchicalCrossEncoder(nn.Module):
         return E 
 
     def get_name(self):
-        return "HIER"+self._cross_sentence_layer.get_name()
+        return "HIER"+self.cross_sentence_layer.get_name()
 
 class CNNCrossEncoder(nn.Module):
 
@@ -338,16 +338,16 @@ class CNNCrossEncoder(nn.Module):
         self.embedding_size = embedding_size
         self.cross_sentence_size = cross_sentence_size
         
-        self._activation = activation
+        self.activation = activation
         
         # We might want to replace this with something different
-        self._embedding = embedding_layer
-        self._emb_layers = nn.Sequential(
+        self.embedding = embedding_layer
+        self.emb_layers = nn.Sequential(
             nn.Linear(self.embedding_size, self.embedding_size),
-            self._activation,
+            self.activation,
         )
 
-        self._conv = nn.Sequential(
+        self.conv = nn.Sequential(
             nn.Conv1d(self.embedding_size, int(self.embedding_size/2), kernel_size=7, stride=1, padding=3),
             nn.ReLU(),
             nn.Conv1d(int(self.embedding_size/2), int(self.embedding_size/4), kernel_size=7, stride=1, padding=3),
@@ -355,9 +355,9 @@ class CNNCrossEncoder(nn.Module):
             nn.Conv1d(int(self.embedding_size/4), self.cross_sentence_size[0], kernel_size=7, stride=1, padding=3)
         )
 
-        self._cross_sentence_layer = cross_sentence_layer
+        self.cross_sentence_layer = cross_sentence_layer
 
-        self._classification = nn.Sequential(
+        self.classification = nn.Sequential(
             nn.Linear(self.cross_sentence_size[1], 10),
             nn.ReLU(),
             nn.Linear(10,1)
@@ -365,29 +365,29 @@ class CNNCrossEncoder(nn.Module):
         self.sig = nn.Sigmoid()
     
     def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        X = self._embedding(X)
+        X = self.embedding(X)
         # Use the mask to exlude any embeddings of padded vectors
         X = torch.mul(mask.unsqueeze(-1), X)
 
-        X = self._emb_layers(X)
+        X = self.emb_layers(X)
 
         X = torch.transpose(X, -1, -2)
 
-        X = self._conv(X)
+        X = self.conv(X)
 
         X = torch.amax(X, dim=-1)
 
-        X = self._cross_sentence_layer(X)
+        X = self.cross_sentence_layer(X)
 
-        X = self._activation(X)
-        X = self._classification(X)
+        X = self.activation(X)
+        X = self.classification(X)
         return X
 
     def classify(self, E: torch.Tensor) -> torch.Tensor:
         return self.sig(E) 
 
     def get_name(self):
-        return "CNN"+self._cross_sentence_layer.get_name()
+        return "CNN"+self.cross_sentence_layer.get_name()
 
 
 class CrossSentenceCNN(nn.Module):
@@ -398,7 +398,7 @@ class CrossSentenceCNN(nn.Module):
         super(CrossSentenceCNN, self).__init__()
         self.cross_sentence_size = cross_sentence_size
 
-        self._conv = nn.Sequential(
+        self.conv = nn.Sequential(
             nn.Conv1d(self.cross_sentence_size[0], self.cross_sentence_size[0], kernel_size=7, stride=1, padding=3),
             nn.ReLU(),
             nn.Conv1d(self.cross_sentence_size[0], self.cross_sentence_size[1], kernel_size=7, stride=1, padding=3),
@@ -408,7 +408,7 @@ class CrossSentenceCNN(nn.Module):
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         X = torch.transpose(X[None,:,:], -1, -2)
-        X = self._conv(X)
+        X = self.conv(X)
         X = torch.squeeze(X, dim=0)
         return torch.transpose(X, -1, -2)
 
@@ -427,17 +427,17 @@ class CrossSentenceRNN(nn.Module):
         self.directions = 2 if self.bidirectional else 1
         self.layers = 1
 
-        self._gru = nn.GRU(self.cross_sentence_size[0], 
+        self.gru = nn.GRU(self.cross_sentence_size[0], 
                            self.cross_sentence_size[1], 
                            num_layers=self.layers,
                            batch_first=True,
                            bidirectional=self.bidirectional)
 
-        self._linear = nn.Linear(self.cross_sentence_size[1]*self.directions, self.cross_sentence_size[1])
+        self.linear = nn.Linear(self.cross_sentence_size[1]*self.directions, self.cross_sentence_size[1])
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        X, _ = self._gru(X[None,:,:])
-        X = self._linear(X)
+        X, _ = self.gru(X[None,:,:])
+        X = self.linear(X)
         X = torch.squeeze(X, dim=0)
         return X
 

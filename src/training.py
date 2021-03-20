@@ -75,19 +75,24 @@ class Trainer:
             self.model = self.model.cuda()
         print(self.model)
 
-        if loss == LossType.BCE:
-            self.loss = nn.BCELoss()
-        elif loss == LossType.HAMM_HINGE:
+        self.loss_type = loss
+
+        if self.loss_type == LossType.BCE:
+            pos_weight = torch.tensor([40.0]).cuda()
+            self.loss = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        elif self.loss_type == LossType.HAMM_HINGE:
             self.loss = HammingLossHinge
-        elif loss == LossType.HAMM_LOGI:
+        elif self.loss_type == LossType.HAMM_LOGI:
             self.loss = HammingLossLogistic
-        elif loss == LossType.SUBSET_HINGE:
+        elif self.loss_type == LossType.SUBSET_HINGE:
             self.loss = SubsetLossHinge
-        elif loss == LossType.SUBSET_LOGI:
+        elif self.loss_type == LossType.SUBSET_LOGI:
             self.loss = SubsetLossLogistic
 
-        if loss != LossType.BCE:
+        if self.loss_type != LossType.BCE:
             self.loss = CombinedLoss([self.loss, nn.BCELoss()], [0.55, 0.45])
+
+        self.model_func = self.model.classify if self.loss_type != LossType.BCE else lambda x: x
 
 
         self.optim = Adam(self.model.parameters(),lr=lr)
@@ -220,7 +225,7 @@ class Trainer:
                     mask = mask.cuda()
 
                 pred = self.model(x, mask)
-                pred = self.model.classify(pred)
+                pred = self.model_func(pred)
                 
                 # calculate loss
                 # TODO accumulate loss over multiple batches/documents
