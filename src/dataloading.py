@@ -260,27 +260,27 @@ def get_greedy_files():
     with io.open(MODEL_PATH/"val_greedy_files.pkl", "wb") as f:
         pickle.dump(res_val_files, f)
 
-def get_train_files():
+def get_train_files() -> List[str]:
     """ Returns all the files previously selected to be used for training. """
     with io.open(MODEL_PATH/"train_files.pkl", "rb") as f:
         return pickle.load(f)
 
-def get_greedy_train_files():
+def get_greedy_train_files() -> List[str]:
     """ Returns all the files previously selected to be used for greedy training (via get_greedy_files, i.e. subset of the total train_files) """
     with io.open(MODEL_PATH/"train_greedy_files.pkl", "rb") as f:
         return pickle.load(f)
 
-def get_val_files():
+def get_val_files() -> List[str]:
     """ Returns all the files previously selected to be used for validation. """
     with io.open(MODEL_PATH/"val_files.pkl", "rb") as f:
         return pickle.load(f)
 
-def get_greedy_val_files():
+def get_greedy_val_files() -> List[str]:
     """ Returns all the files previously selected to be used for greedy validation (via get_greedy_files, i.e. subset of the total val_files) """
     with io.open(MODEL_PATH/"val_greedy_files.pkl", "rb") as f:
         return pickle.load(f)
 
-def get_test_files():
+def get_test_files() -> List[str]:
     """ Returns all the files previously selected to be used for testing. """
     with io.open(MODEL_PATH/"test_files.pkl", "rb") as f:
         return pickle.load(f)
