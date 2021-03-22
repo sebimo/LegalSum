@@ -454,13 +454,19 @@ def load_model(model: nn.Module, path: Path, device: torch.device):
 def parse_run_parameters(filename: str) -> Dict:
     split = filename.split("_")
     parameters = {}
-    parameters["modelfile"] = "_".join(split[:5])+".model"
-    # TODO link this to the parameters from the logger
-    poss_params = set(["model", "lr", "abstractive", "embedding", "attention", "loss", "type"])
+    parameters["modelfile"] = "model/"+"_".join(split[:5])+".model"
+    poss_params = set(["model", "lr", "abstractive", "embedding", "attention", "loss"])
     param_name = []
     for s in split[5:]:
         if s in poss_params:
+            param_name = [s]
+        elif s == "type":
             param_name.append(s)
+        elif param_name[0] == "model":
+            if "model" in parameters:
+                parameters["model"] += "_"+s
+            else:
+                parameters["model"] = s
         elif len(param_name) > 0:
             parameters["_".join(param_name)] = s
             param_name = []
@@ -493,5 +499,43 @@ def reload_model(parameters: Dict) -> nn.Module:
         model = RNNEncoder(embedding_layer=embeddings, embedding_size=embedding_size)
     elif parameters["model"] == "CNN":
         model = CNNEncoder(embedding_layer=embeddings, embedding_size=embedding_size)
+    elif parameters["model"] == "HIER_CNN":
+        # Fixed dimensions, i.e. we do not change them here
+        cross_sentence_size = [100, 100]
+        cross_sentence = CrossSentenceCNN(cross_sentence_size)
+        model = HierarchicalCrossEncoder(
+                    embedding_layer=embeddings,
+                    cross_sentence_layer=cross_sentence,
+                    cross_sentence_size=cross_sentence_size
+                ) 
+    elif parameters["model"] == "HIER_RNN":
+        # Fixed dimensions, i.e. we do not change them here
+        cross_sentence_size = [100, 100]
+        cross_sentence = CrossSentenceRNN(cross_sentence_size)
+        model = HierarchicalCrossEncoder(
+                    embedding_layer=embeddings,
+                    cross_sentence_layer=cross_sentence,
+                    cross_sentence_size=cross_sentence_size
+                ) 
+    elif parameters["model"] == "CNN_CNN":
+        # Fixed dimensions, i.e. we do not change them here 
+        cross_sentence_size = [100, 100]
+        cross_sentence = CrossSentenceCNN(cross_sentence_size)
+        model = CNNCrossEncoder(
+                    embedding_layer=embeddings,
+                    cross_sentence_layer=cross_sentence,
+                    cross_sentence_size=cross_sentence_size
+                ) 
+    elif parameters["model"] == "CNN_RNN":
+        # Fixed dimensions, i.e. we do not change them here
+        cross_sentence_size = [100, 100]
+        cross_sentence = CrossSentenceRNN(cross_sentence_size)
+        model = CNNCrossEncoder(
+                    embedding_layer=embeddings,
+                    cross_sentence_layer=cross_sentence,
+                    cross_sentence_size=cross_sentence_size
+                ) 
+
     
     model = load_model(model, Path(parameters["modelfile"]), torch.device("cuda:0"))
+    return model

@@ -3,7 +3,7 @@ import torchtest
 import torch
 from torch.nn import Embedding
 
-from ..model import HierarchicalEncoder, RNNEncoder, Attention, parse_run_parameters
+from ..model import HierarchicalEncoder, RNNEncoder, Attention, AttentionType, parse_run_parameters, reload_model, CNNCrossEncoder, CrossSentenceCNN
 from ..embedding import GloVe
 
 class TestHierarchicalEncoder:
@@ -153,7 +153,7 @@ class TestModelLoading:
         filename = "01_03_2021__112503_model_HIER_lr_0.003184952816752174_abstractive_0_embedding_glove_attention_BILINEAR"
         parameters = parse_run_parameters(filename)
         res = {
-            "modelfile": "01_03_2021__112503.model",
+            "modelfile": "model/01_03_2021__112503.model",
             "model": "HIER",
             "lr": 0.003184952816752174,
             "abstractive": False,
@@ -165,10 +165,41 @@ class TestModelLoading:
         filename = "09_03_2021__100342_model_RNN_lr_0.035803844608484355_abstractive_0_embedding_glove_attention_None_loss_type_BCE"
         parameters = parse_run_parameters(filename)
         res = {
-            "modelfile": "09_03_2021__100342.model",
+            "modelfile": "model/09_03_2021__100342.model",
             "model": "RNN",
             "lr": 0.035803844608484355,
             "abstractive": False,
             "embedding": "glove",
             "loss_type": "BCE"
         }
+
+        # Bigger models
+
+        filename = "09_03_2021__100342_model_CNN_RNN_lr_0.035803844608484355_abstractive_0_embedding_glove_attention_None_loss_type_BCE"
+        parameters = parse_run_parameters(filename)
+        res = {
+            "modelfile": "model/09_03_2021__100342.model",
+            "model": "CNN_RNN",
+            "lr": 0.035803844608484355,
+            "abstractive": False,
+            "embedding": "glove",
+            "loss_type": "BCE"
+        }
+
+        filename = "09_03_2021__100342_model_HIER_RNN_lr_0.035803844608484355_abstractive_0_embedding_glove_attention_None_loss_type_BCE"
+        parameters = parse_run_parameters(filename)
+        res = {
+            "modelfile": "model/09_03_2021__100342.model",
+            "model": "HIER_RNN",
+            "lr": 0.035803844608484355,
+            "abstractive": False,
+            "embedding": "glove",
+            "loss_type": "BCE"
+        }
+
+    def model_loading(self):
+        filename = "19_03_2021__204939_model_CNN_CNN_lr_0.006123480173958231_abstractive_0_embedding_glove_attention_DOT_loss_type_BCE_target_GREEDY"
+        parameters = parse_run_parameters(filename)
+        model = reload_model(parameters)
+        assert isinstance(model, CNNCrossEncoder)
+        assert isinstance(model.cross_sentence_layer, CrossSentenceCNN)
