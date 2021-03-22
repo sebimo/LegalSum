@@ -536,6 +536,6 @@ def reload_model(parameters: Dict) -> nn.Module:
                     cross_sentence_size=cross_sentence_size
                 ) 
 
-    
     model = load_model(model, Path(parameters["modelfile"]), torch.device("cuda:0"))
-    return model
+
+    return model, embeddings

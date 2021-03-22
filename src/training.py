@@ -2,7 +2,7 @@
 # Combines functionality of dataloading.py and model.py to train the models
 import os
 from pathlib import Path
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Tuple, List
 
 from tqdm import tqdm
 import numpy as np
@@ -13,7 +13,8 @@ from torch.optim import SparseAdam, Adam, SGD
 from torch.optim.lr_scheduler import MultiplicativeLR
 
 from .dataloading import ExtractiveDataset, collate, collate_abs, LossType
-from .evaluation import merge, merge_epoch, finalize_statistic, calculate_confusion_matrix
+from .preprocessing import Tokenizer
+from .evaluation import merge, merge_epoch, finalize_statistic, calculate_confusion_matrix, evaluate
 from .model import save_model
 from .loss import HammingLossHinge, HammingLossLogistic, SubsetLossHinge, SubsetLossLogistic, CombinedLoss
 from .model_logging.logger import Logger
@@ -297,3 +298,48 @@ class Trainer:
             self.lr_scheduler = checkpoint["lr_scheduler"]
 
         
+def evaluate_ext_model(model: nn.Module, embedding: nn.Module, verdicts: List[str]) -> Dict[str, float]:
+    # Create tokenizer
+    tok = Tokenizer(Path("model"), normalize=True, mapping=embedding.get_word_mapping())
+    dataset = Path("data/dataset")
+    model = model.cuda()
+    threshold = 0.5
+    scores = []
+    for verdict in verdicts:
+        gp_sents, body_sents, x, mask = load_verdict(dataset/verdict, tok) 
+        x = x.cuda()
+        mask = mask.cuda()
+
+        pred = model(x, mask)
+        pred = model.classify(pred)
+        pred = pred.cpu().detach().numpy().squeeze(axis=1)
+        # TODO check correct shape
+        
+        selected_sentences = []
+        for i, sent in enumerate(body_sents): 
+            if pred[i] >= threshold:
+                selected_sentences += sent
+
+        labels = []
+        for sent in enumerate(gp_sents):
+            labels += sent
+
+        score = evaluate([labels], [selected_sentences])[0]
+        scores.append(score)
+    
+    return scores
+
+def load_verdict(path: Path, tok: Tokenizer):
+    verdict = tok.tokenize_verdict_without_id()
+    x_1 = list(map(lambda sentence: list(map(lambda token: tok.tok2id[token], sentence)), verdict["facts"]))
+    x_2 = list(map(lambda sentence: list(map(lambda token: tok.tok2id[token], sentence)), verdict["reasoning"]))
+    
+    x = []
+    for ind in x_1:
+        x.append(torch.LongTensor(ind))
+    for ind in x_2:
+        x.append(torch.LongTensor(ind))
+
+    x = torch.nn.utils.rnn.pad_sequence(x, batch_first=True)
+    mask = (x!=0)
+    return verdict["guiding_principle"], verdict["facts"] + verdict["reasoning"], x, mask

@@ -200,6 +200,7 @@ class TestModelLoading:
     def model_loading(self):
         filename = "19_03_2021__204939_model_CNN_CNN_lr_0.006123480173958231_abstractive_0_embedding_glove_attention_DOT_loss_type_BCE_target_GREEDY"
         parameters = parse_run_parameters(filename)
-        model = reload_model(parameters)
+        model, embedding = reload_model(parameters)
         assert isinstance(model, CNNCrossEncoder)
         assert isinstance(model.cross_sentence_layer, CrossSentenceCNN)
+        assert isinstance(embedding, GloVe)
