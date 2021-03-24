@@ -309,7 +309,6 @@ def evaluate_ext_model(model: nn.Module, embedding: nn.Module, verdicts: List[st
     """
     # Create tokenizer
     tok = Tokenizer(Path("model"), normalize=True, mapping=embedding.get_word_mapping())
-    dataset = Path("data/dataset")
     model = model.cuda()
     THRESHOLD = 0.5
     # We will take the 
@@ -352,6 +351,29 @@ def selection(pred: np.array, threshold: float, max_sents: int) -> Set[int]:
     pred = np.where(pred >= threshold, pred, 0.0)
     indices = set(pred.argsort()[-selections:].tolist())
     return indices
+
+def evaluate_lead(verdicts: List[str], n: Tuple=(3,0)) -> Dict:
+    assert (n[0] > 0 or n[1] > 0) and len(n) > 0
+    tok = Tokenizer(Path("model"), normalize=True)
+    scores = []
+    for verdict in tqdm(verdicts):
+        verdict = tok.tokenize_verdict_without_id(verdict) 
+
+        gp = [token for sentence in verdict["guiding_principle"] for token in sentence]
+        selected_sentences = []
+        if n[0] > 0:
+            selected_sentences += verdict["facts"][:n[0]]
+        if n[1] > 0:
+            selected_sentences += verdict["reasoning"][:n[1]]
+
+        selected_sentences = [token for sentence in selected_sentences for token in sentence]
+
+        if len(selected_sentences) == 0:
+            selected_sentences = ["<unk>"]        
+        score = evaluate([gp], [selected_sentences])[0]
+        scores.append(score)
+    
+    return scores
 
 def load_verdict(path: Path, tok: Tokenizer):
     verdict = tok.tokenize_verdict_without_id(path)

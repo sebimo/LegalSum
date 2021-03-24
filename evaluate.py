@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from src.dataloading import get_val_files, get_test_files
-from src.training import evaluate_ext_model
+from src.training import evaluate_ext_model, evaluate_lead
 from src.model import parse_run_parameters, reload_model
 
 def average(scores: List[Dict]) -> Dict:
@@ -27,10 +27,21 @@ def average(scores: List[Dict]) -> Dict:
     
     return d
 
+def evaluate_leads(verdicts: List[str]):
+    # (f,r): f sentences from the beginning of facts and r sentences from the beginning of reasoning 
+    acc_score = []
+    for l in [(3,0), (0,3), (3,3)]:
+        print("Lead:", l)
+        scores = evaluate_lead(verdicts, n=l)
+        avg_scores = average(scores)
+        print(avg_scores)
+        acc_score.append({str(l[0])+"_"+str(l[1]): avg_scores})
+    with io.open("logging/lead3_test_perf.json", "w+", encoding="utf-8") as f:
+        json.dump(acc_score, f, sort_keys=False, indent=4, ensure_ascii=False)
 
-if __name__ == "__main__":
+def evaluate_ext_models():
     try:
-        with io.open("logging/ext_perf.json", "r", encoding="utf-8") as f:
+        with io.open("logging/ext_test_perf_same.json", "r", encoding="utf-8") as f:
             data = json.load(f)
     except: 
         data = []
@@ -38,9 +49,13 @@ if __name__ == "__main__":
         print(folder)
         params = parse_run_parameters(folder)
         model, embedding = reload_model(params)
-        scores = evaluate_ext_model(model, embedding, get_val_files(), equal_length=True)
+        scores = evaluate_ext_model(model, embedding, get_test_files(), equal_length=False)
         avg_scores = average(scores)
         print(avg_scores)
         data.append({folder: avg_scores})
-        with io.open("logging/ext_perf.json", "w+", encoding="utf-8") as f:
+        with io.open("logging/ext_test_perf_same.json", "w+", encoding="utf-8") as f:
             json.dump(data, f, sort_keys=False, indent=4, ensure_ascii=False)
+
+if __name__ == "__main__":
+    #evaluate_ext_models()
+    evaluate_leads(get_test_files())
