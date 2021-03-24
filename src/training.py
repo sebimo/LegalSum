@@ -2,7 +2,7 @@
 # Combines functionality of dataloading.py and model.py to train the models
 import os
 from pathlib import Path
-from typing import Callable, Dict, Tuple, List
+from typing import Callable, Dict, Tuple, List, Set
 
 from tqdm import tqdm
 import numpy as np
@@ -298,39 +298,63 @@ class Trainer:
             self.lr_scheduler = checkpoint["lr_scheduler"]
 
         
-def evaluate_ext_model(model: nn.Module, embedding: nn.Module, verdicts: List[str]) -> Dict[str, float]:
+def evaluate_ext_model(model: nn.Module, embedding: nn.Module, verdicts: List[str], max_sents: int=5, equal_length: bool=True) -> List[Dict[str, float]]:
+    """ Will evaluate a model on all the verdicts given. Some additional parameters are possible to reduce the length 
+        Parameters:
+            model -- the given NN used for the predictions
+            embedding -- the embeddings used for the token <-> id mapping
+            verdicts -- the paths to the verdicts which shall be evaluated
+            max_sents -- maximum number of sentences per created summarization
+            equal_length -- if the number of sentences from the created summary need to match the number of sentences from the Ground Truth; overrides max_sents
+    """
     # Create tokenizer
     tok = Tokenizer(Path("model"), normalize=True, mapping=embedding.get_word_mapping())
     dataset = Path("data/dataset")
     model = model.cuda()
-    threshold = 0.5
+    THRESHOLD = 0.5
+    # We will take the 
+    MAX_NUM_SENTS = max_sents
     scores = []
-    for verdict in verdicts:
-        gp_sents, body_sents, x, mask = load_verdict(dataset/verdict, tok) 
+    for verdict in tqdm(verdicts):
+        gp_sents, body_sents, x, mask = load_verdict(verdict, tok) 
         x = x.cuda()
         mask = mask.cuda()
 
         pred = model(x, mask)
         pred = model.classify(pred)
         pred = pred.cpu().detach().numpy().squeeze(axis=1)
-        # TODO check correct shape
+        if equal_length:
+            sent_indices = selection(pred, THRESHOLD, len(gp_sents))
+        else:
+            sent_indices = selection(pred, THRESHOLD, MAX_NUM_SENTS)
         
         selected_sentences = []
         for i, sent in enumerate(body_sents): 
-            if pred[i] >= threshold:
+            if i in sent_indices:
                 selected_sentences += sent
 
         labels = []
-        for sent in enumerate(gp_sents):
+        for sent in gp_sents:
             labels += sent
 
+        if len(selected_sentences) == 0:
+            selected_sentences = ["<unk>"]
         score = evaluate([labels], [selected_sentences])[0]
         scores.append(score)
     
     return scores
 
+def selection(pred: np.array, threshold: float, max_sents: int) -> Set[int]:
+    num_possible_selections = np.sum(np.where(pred >= threshold, 1, 0))
+    selections = min(num_possible_selections, max_sents)
+    if selection == 0:
+        raise ValueError
+    pred = np.where(pred >= threshold, pred, 0.0)
+    indices = set(pred.argsort()[-selections:].tolist())
+    return indices
+
 def load_verdict(path: Path, tok: Tokenizer):
-    verdict = tok.tokenize_verdict_without_id()
+    verdict = tok.tokenize_verdict_without_id(path)
     x_1 = list(map(lambda sentence: list(map(lambda token: tok.tok2id[token], sentence)), verdict["facts"]))
     x_2 = list(map(lambda sentence: list(map(lambda token: tok.tok2id[token], sentence)), verdict["reasoning"]))
     

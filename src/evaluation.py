@@ -5,7 +5,7 @@ from sklearn.metrics import confusion_matrix
 
 from rouge import Rouge # https://github.com/pltrdy/rouge
 
-rouge = Rouge(metrics=["rouge-1", "rouge-2", "rouge-l"])
+rouge = Rouge(metrics=["rouge-1", "rouge-2"]) #, "rouge-l"])
 
 def evaluate(labels: List[List[str]], predictions: List[List[str]]) -> List[Dict[str, Dict[str, float]]]:
     """ Wrapper function around the rouge implementation, as it expects a continous text, we only get tokens 
