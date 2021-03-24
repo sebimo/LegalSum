@@ -1,10 +1,11 @@
 # Contains all the models and its components for the summarization task
 # We might want to compile the models to get faster training, is that possible?
 # TODO Attention-layer for Encoding
-
+import sys
 from pathlib import Path
 from enum import Enum
 from typing import List, Dict
+from collections import defaultdict
 
 import torch
 import torch.nn as nn
@@ -455,7 +456,7 @@ def parse_run_parameters(filename: str) -> Dict:
     split = filename.split("_")
     parameters = {}
     parameters["modelfile"] = "model/"+"_".join(split[:5])+".model"
-    poss_params = set(["model", "lr", "abstractive", "embedding", "attention", "loss"])
+    poss_params = set(["model", "lr", "abstractive", "embedding", "attention", "loss", "target"])
     param_name = []
     for s in split[5:]:
         if s in poss_params:
@@ -535,7 +536,64 @@ def reload_model(parameters: Dict) -> nn.Module:
                     cross_sentence_layer=cross_sentence,
                     cross_sentence_size=cross_sentence_size
                 ) 
+    try:
+        m = load_model(model, Path(parameters["modelfile"]), torch.device("cuda:0"))
+    except RuntimeError:
+        # Some models were trained before a model refactor, i.e. they have slightly different attribute names
+        # To subvert this issue, we will parse the error message for the relevant attributes that are missing or are unexpected and then compare those two lists
+        # If the unexpected list contains all the attributes from the missing list with "_" before them, we just set every attribute in the model object to that name
+        # This only works as the refactor was aestatic, and no logic was changed. (i.e. model._embedding -> model.embedding)
+        _, ex_obj, _ = sys.exc_info()
+        values = str(ex_obj).split("Missing key(s) in state_dict: ")
+        assert len(values) == 2
+        values = values[1].strip()
+        unexpected = values.split("Unexpected key(s) in state_dict: ")
+        assert len(unexpected) == 2
+        
+        missing = list(map(lambda x: x.strip(".").strip("\""), unexpected[0].strip().split(", ")))
+        unexpected = list(map(lambda x: x.strip(".").strip("\""), unexpected[1].strip().split(", ")))
+        missing_set = set()
+        for s in missing:
+            missing_set.add(s.split(".")[0])
+        unexpected_set = set()
+        # If we have hierarchical models, we might need to change the sentence encoder as well
+        sub_unexpected = defaultdict(set)
+        for s in unexpected:
+            attr = s.split(".")[0]
+            unexpected_set.add(attr)
+            sub_split = s.split("._")
+            if len(sub_split) == 1:
+                pass
+            elif len(sub_split) == 2:
+                # [0] as this is the attribute, "_" will already be removed by the split command
+                sub_unexpected[attr].add(sub_split[1].split(".")[0])
+            else:
+                raise ValueError("Unknown attribute format:"+s)
 
-    model = load_model(model, Path(parameters["modelfile"]), torch.device("cuda:0"))
+        # We now check that all the changes are purely aestatic + rename the attributes
+        assert len(missing_set) == len(unexpected_set)
+        for x in missing_set:
+            assert "_"+x in unexpected_set
+            setattr(model, "_"+x, getattr(model, x))
+            delattr(model, x)
+        # In a hierarchical model the sentence encoders also have some aestatic changes
+        for x in sub_unexpected:
+            for s_x in sub_unexpected[x]:
+                setattr(getattr(model, x), "_"+s_x, getattr(getattr(model, x), s_x))
+                delattr(getattr(model, x), s_x)
 
+        m = load_model(model, Path(parameters["modelfile"]), torch.device("cuda:0"))
+
+        # We now have to revert all renames, as otherwise the methods will not work...
+        
+        # Change in inverted order, as otherwise the name references in sub_unexpected would not match
+        for x in sub_unexpected:
+            for s_x in sub_unexpected[x]:
+                setattr(getattr(model, x), s_x, getattr(getattr(model, x), "_"+s_x))
+                delattr(getattr(model, x), "_"+s_x)
+        for x in missing_set:
+            setattr(model, x, getattr(model, "_"+x))
+            delattr(model, "_"+x)        
+
+    model = m
     return model, embeddings
