@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 from typing import Callable, Dict, Tuple, List, Set
+import random
 
 from tqdm import tqdm
 import numpy as np
@@ -298,7 +299,7 @@ class Trainer:
             self.lr_scheduler = checkpoint["lr_scheduler"]
 
         
-def evaluate_ext_model(model: nn.Module, embedding: nn.Module, verdicts: List[str], max_sents: int=5, equal_length: bool=True) -> List[Dict[str, float]]:
+def evaluate_ext_model(model: nn.Module, embedding: nn.Module, verdicts: List[str], max_sents: int=3, equal_length: bool=True) -> List[Dict[str, float]]:
     """ Will evaluate a model on all the verdicts given. Some additional parameters are possible to reduce the length 
         Parameters:
             model -- the given NN used for the predictions
@@ -365,6 +366,29 @@ def evaluate_lead(verdicts: List[str], n: Tuple=(3,0)) -> Dict:
             selected_sentences += verdict["facts"][:n[0]]
         if n[1] > 0:
             selected_sentences += verdict["reasoning"][:n[1]]
+
+        selected_sentences = [token for sentence in selected_sentences for token in sentence]
+
+        if len(selected_sentences) == 0:
+            selected_sentences = ["<unk>"]        
+        score = evaluate([gp], [selected_sentences])[0]
+        scores.append(score)
+    
+    return scores
+
+def evaluate_random(verdicts: List[str], equal_length: bool=True) -> Dict:
+    random.seed(2021)
+    tok = Tokenizer(Path("model"), normalize=True)
+    scores = []
+    for verdict in tqdm(verdicts):
+        verdict = tok.tokenize_verdict_without_id(verdict) 
+
+        gp = [token for sentence in verdict["guiding_principle"] for token in sentence]
+        text = verdict["facts"]+verdict["reasoning"]
+        if equal_length:
+            selected_sentences = random.choices(text, k=len(verdict["guiding_principle"]))
+        else:
+            selected_sentences = random.choices(text, k=3)
 
         selected_sentences = [token for sentence in selected_sentences for token in sentence]
 

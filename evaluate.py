@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from src.dataloading import get_val_files, get_test_files
-from src.training import evaluate_ext_model, evaluate_lead
+from src.training import evaluate_ext_model, evaluate_lead, evaluate_random
 from src.model import parse_run_parameters, reload_model
 
 def average(scores: List[Dict]) -> Dict:
@@ -39,9 +39,18 @@ def evaluate_leads(verdicts: List[str]):
     with io.open("logging/lead3_test_perf.json", "w+", encoding="utf-8") as f:
         json.dump(acc_score, f, sort_keys=False, indent=4, ensure_ascii=False)
 
+def evaluate_randoms(verdicts: List[str]):
+    print("Random")
+    scores = evaluate_random(verdicts, False)
+    avg_scores = average(scores)
+    print(avg_scores)
+    acc_score = [avg_scores]
+    with io.open("logging/random_test_perf.json", "w+", encoding="utf-8") as f:
+        json.dump(acc_score, f, sort_keys=False, indent=4, ensure_ascii=False)
+
 def evaluate_ext_models():
     try:
-        with io.open("logging/ext_test_perf_same.json", "r", encoding="utf-8") as f:
+        with io.open("logging/ext_test_perf.json", "r", encoding="utf-8") as f:
             data = json.load(f)
     except: 
         data = []
@@ -53,9 +62,10 @@ def evaluate_ext_models():
         avg_scores = average(scores)
         print(avg_scores)
         data.append({folder: avg_scores})
-        with io.open("logging/ext_test_perf_same.json", "w+", encoding="utf-8") as f:
+        with io.open("logging/ext_test_perf.json", "w+", encoding="utf-8") as f:
             json.dump(data, f, sort_keys=False, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
     #evaluate_ext_models()
-    evaluate_leads(get_test_files())
+    #evaluate_leads(get_test_files())
+    evaluate_randoms(get_test_files())
