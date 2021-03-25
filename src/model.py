@@ -391,6 +391,73 @@ class CNNCrossEncoder(nn.Module):
         return "CNN"+self.cross_sentence_layer.get_name()
 
 
+class RNNCrossEncoder(nn.Module):
+
+    def __init__(self,
+                 embedding_layer: nn.Module,
+                 cross_sentence_layer: nn.Module,
+                 embedding_size: int = 100,
+                 layers = 1,
+                 cross_sentence_size: List[int] = [100, 100],
+                 n_tokens: int = 50000,
+                 activation: nn.Module = nn.ReLU()):
+        super(RNNCrossEncoder, self).__init__()
+        self.embedding_size = embedding_size
+        self.cross_sentence_size = cross_sentence_size
+        
+        self.activation = activation
+        
+        # We might want to replace this with something different
+        self.embedding = embedding_layer
+        self.emb_layers = nn.Sequential(
+            nn.Linear(self.embedding_size, self.embedding_size),
+            self.activation,
+        )
+
+        self.layers = layers
+
+        self.gru = nn.GRU(self.embedding_size, self.embedding_size, num_layers=layers, bidirectional=self.bidirectional)
+        self.gru_size = self.embedding_size*(2 if self.bidirectional else 1)
+        self.sentence_enc = nn.Sequential(
+            nn.Linear(self.gru_size, self.embedding_size),
+            self.activation,
+            nn.Linear(self.embedding_size, self.cross_sentence_size[0]),
+            self.activation
+        )
+
+        self.cross_sentence_layer = cross_sentence_layer
+
+        self.classification = nn.Sequential(
+            nn.Linear(self.cross_sentence_size[1], self.cross_sentence_size[1]),
+            self.activation,
+            nn.Linear(self.cross_sentence_size[1],1)
+        )
+        self.sig = nn.Sigmoid()
+    
+    def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        X = self.embedding(X)
+        # Use the mask to exlude any embeddings of padded vectors
+        X = torch.mul(mask.unsqueeze(-1), X)
+
+        X = self.emb_layers(X)
+
+        X, _ = self.gru(X)
+        # Take last element as embedding for sentence
+        X = self.sentence_enc(X[:,-1,:])
+
+        X = self.cross_sentence_layer(X)
+
+        X = self.activation(X)
+        X = self.classification(X)
+        return X
+
+    def classify(self, E: torch.Tensor) -> torch.Tensor:
+        return self.sig(E) 
+
+    def get_name(self):
+        return "RNN"+self.cross_sentence_layer.get_name()
+
+
 class CrossSentenceCNN(nn.Module):
     """ Module which will transfer information between nearby sentences -> decision about extraction should not be only based on sentence """
     
@@ -532,6 +599,22 @@ def reload_model(parameters: Dict) -> nn.Module:
         cross_sentence_size = [100, 100]
         cross_sentence = CrossSentenceRNN(cross_sentence_size)
         model = CNNCrossEncoder(
+                    embedding_layer=embeddings,
+                    cross_sentence_layer=cross_sentence,
+                    cross_sentence_size=cross_sentence_size
+                ) 
+    elif parameters["model"] == "RNN_RNN":
+        cross_sentence_size = [100, 100]
+        cross_sentence = CrossSentenceRNN(cross_sentence_size)
+        model = RNNCrossEncoder(
+                    embedding_layer=embeddings,
+                    cross_sentence_layer=cross_sentence,
+                    cross_sentence_size=cross_sentence_size
+                ) 
+    elif parameters["model"] == "RNN_CNN":
+        cross_sentence_size = [100, 100]
+        cross_sentence = CrossSentenceCNN(cross_sentence_size)
+        model = RNNCrossEncoder(
                     embedding_layer=embeddings,
                     cross_sentence_layer=cross_sentence,
                     cross_sentence_size=cross_sentence_size
