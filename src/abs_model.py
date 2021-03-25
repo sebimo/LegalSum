@@ -47,9 +47,9 @@ class HierarchicalCrossEncoder(nn.Module):
             self.activation,
         )
 
-        self._cross_sentence_layer = cross_sentence_layer
+        self.cross_sentence_layer = cross_sentence_layer
 
-        self._lin_layers = nn.Sequential(
+        self.lin_layers = nn.Sequential(
             nn.Dropout(p=0.2),
             nn.Linear(self.cross_sentence_size[1], self.cross_sentence_size[1]),
             nn.ReLU(),
@@ -72,8 +72,6 @@ class HierarchicalCrossEncoder(nn.Module):
         X = self.lin_layers(X)
 
         return X
-
-    # TODO add functionality to dynamically change the vectors + matrices used for attention based on the previously created tokens
 
     def get_name(self):
         return "HIER"+self._cross_sentence_layer.get_name()
@@ -158,6 +156,7 @@ class CrossSentenceCNN(nn.Module):
         )
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
+        # TODO we do not want sentence by sentence prediction
         X = torch.transpose(X[None,:,:], -1, -2)
         X = self.conv(X)
         X = torch.squeeze(X, dim=0)
@@ -187,6 +186,7 @@ class CrossSentenceRNN(nn.Module):
         self.linear = nn.Linear(self.cross_sentence_size[1]*self.directions, self.cross_sentence_size[1])
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
+        # TODO we do not want sentence by sentence prediction
         X, _ = self.gru(X[None,:,:])
         X = self.linear(X)
         X = torch.squeeze(X, dim=0)
@@ -194,6 +194,45 @@ class CrossSentenceRNN(nn.Module):
 
     def get_name(self):
         return "_RNN"
+
+class RNNPrevEncoder(nn.Module):
+
+    def __init__(self,
+                 embedding_layer: nn.Module,
+                 embedding_size: int = 200,
+                 layers = 1,
+                 bidirectional = False):
+        super(RNNPrevEncoder, self).__init__()
+        self.embedding_size = embedding_size
+        
+        # We might want to replace this embedding layer with something different
+        self.embedding = embedding_layer
+        self.layers = layers
+        self.bidirectional = bidirectional
+
+        self.gru1 = nn.GRU(self.embedding_size, self.embedding_size, num_layers=layers, bidirectional=self.bidirectional)
+        self.gru_size = self.embedding_size*(2 if self.bidirectional else 1)
+        self.reduction1 = nn.Linear(self.gru_size, self.embedding_size)
+        self.reduction2 = nn.Linear(self.embedding_size, self.embedding_size)
+        self.activation = nn.ReLU()
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        X = self.embedding(X)
+
+        # RNN over the tokens in a sentence
+        X, _ = self.gru1(X)
+        # Take last element as embedding for the sequence
+        X = self.reduction1(X[:,-1,:])
+        X = self.activation(X)
+
+        X = self.reduction2(X)
+        X = self.activation(X)
+        X = self.classification(X)
+
+        return X
+
+    def get_name(self):
+        return "RNN"
 
 class Decoder(nn.Module):
 
@@ -211,32 +250,47 @@ class Decoder(nn.Module):
             nn.ReLU(),
             nn.Linear(self.embed_size, self.output_size)
         )
+        self.softmax = nn.Softmax()
 
-    def forward(facts: torch.Tensor, reasoning: torch.Tensor, previous: torch.Tensor):
-        # For every tensor in previous: create one output!
-        # We also might want to do this easier first and only produce word by word
-        pass
+    def forward(self, facts: torch.Tensor, reasoning: torch.Tensor, previous: torch.Tensor):
+        print(facts.shape, reasoning.shape, previous.shape)
+        # We might need to use different stacking functions
+        X = torch.hstack([facts, reasoning, previous])
+        X = self.layers(X)
+
+        return self.softmax(X)
+
+    def get_name(self):
+        return "LIN"
 
 class AbstractiveModel(nn.Module):
 
     def __init__(self,
-                 fact_encoder: nn.Module,
-                 reason_encoder: nn.Module,
+                 body_encoder: nn.Module,
                  prev_encoder: nn.Module,
                  decoder: nn.Module,
-                 num_tokens: int=50000                 
+                 prev_size: List[int]=[100]         
                 ):
         super(AbstractiveModel, self).__init__()
-        self.num_tokens = num_tokens
-        self.fact_encoder = fact_encoder
-        self.reason_encoder = reason_encoder
+        self.body_encoder = body_encoder
         self.decoder = decoder
         self.prev_encoder = prev_encoder
+        self.prev_size = prev_size
 
-    def forward(self, target, length, facts, facts_mask, reason, reason_mask):
-        p_tensor = self.prev_encoder(target)
+    def forward(self, previous, facts, facts_mask, reason, reason_mask):
+        # Will only produce one word
+        if previous.shape[0] == 0:
+            previous = torch.zeros(self.prev_size).to(previous.device)
+        p_tensor = self.prev_encoder(previous)
 
-        f_tensor = self.fact_encoder(facts, facts_mask)
-        r_tensor = self.reason_encoder(reason, reason_mask)
+        f_tensor = self.body_encoder(facts, facts_mask)
+        r_tensor = self.body_encoder(reason, reason_mask)
 
         return self.decoder(f_tensor, r_tensor, p_tensor)
+
+    def forward_sentence(self, target, length, facts, facts_mask, reason, reason_mask):
+        # We get one target sentence and want to predict the masked words, i.e. the models can only see the past words
+        pass
+
+    def get_name(self):
+        return self.body_encoder._get_name()+"_PRE_"+self.prev_encoder._get_name()+"_DEC_"+self.decoder._get_name()
