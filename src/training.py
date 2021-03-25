@@ -173,20 +173,62 @@ class Trainer:
                 
                 # run model
                 if self.cuda:
-                    t = t.cuda()
-                    l = l.cuda()
-                    f = f.cuda()
-                    f_m = f_m.cuda()
-                    r = r.cuda()
-                    r_m = r_m.cuda()
+                    tar = tar.cuda()
+                    facts = facts.cuda()
+                    facts_mask = facts_mask.cuda()
+                    reason = reason.cuda()
+                    reason_mask = reason_mask.cuda()
 
                 loss = torch.zeros(1)
                 # Sentence for sentence generation
                 for t, l in self.__abs_minibatch__(tar, leng):
-                    # The model gets the targets, but will mask every word from the future; this way we can generate a word prediction for every position
-                    # pred does only contain the values for the correct words
-                    pred = self.model(t, l, facts, facts_mask, reason, reason_mask)
+                    # In this training case, we will produce the output word for word, i.e. we need to mask all words up to the current one
+                    for i in range(l[0]):
+                        pred = self.model(t[:i], facts, facts_mask, reason, reason_mask)
+                        pred = pred[t[i]]       
+                        # Accumulate loss over multiple batches/documents
+                        loss -= torch.sum(torch.log(pred+1e-8))
+                if self.train_mode:
+                    # backpropagation
+                    loss.backward()
+                    # We might want to do some gradient clipping
+                    #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+                    self.optim.step()
                     
+                
+                # Identify which statistics are pushed to the epoch method
+                # evaluate batch
+                np_loss = loss.cpu().detach().numpy()
+                result = {
+                    "loss": np_loss
+                }
+
+                batch_stats = merge(batch_stats, result)
+
+        return batch_stats
+
+    def __process_abstr_sentence_batch__(self, data):
+        # Same abstractive training as above, but the training is done on a sentence level, i.e. the model needs to do the heavy lifting for the predictions
+        batch_stats = {}
+        # Each entry in data is one document containing an abitrary number of sentences
+        for batch in data:
+            for tar, leng, facts, facts_mask, reason, reason_mask in batch:
+                # target, lengths, facts, fact mask, reasoning, reasoning_mask, norms
+                self.optim.zero_grad()
+                
+                if self.cuda:
+                    tar = tar.cuda()
+                    leng = leng.cuda()
+                    facts = facts.cuda()
+                    facts_mask = facts_mask.cuda()
+                    reason = reason.cuda()
+                    reason_mask = reason_mask.cuda()
+
+                loss = torch.zeros(1)
+                # Sentence for sentence generation
+                for t, l in self.__abs_minibatch__(tar, leng):
+                    # In this training case, we will produce the output word for word, i.e. we need to mask all words up to the current one
+                    pred = self.model.forward_sentence(t, l, facts, facts_mask, reason, reason_mask)      
                     # Accumulate loss over multiple batches/documents
                     loss -= torch.sum(torch.log(pred+1e-8))
                 if self.train_mode:
