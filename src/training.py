@@ -62,10 +62,8 @@ class Trainer:
                 cuda = if we want to use the GPU during training
                 workers = number of processes used for data loading
         """
-        if self.abstractive:
-            col = collate_abs
-        else:
-            col = collate
+        assert not self.abstractive
+        col = collate
 
         self.dataloader = DataLoader(self.trainset, shuffle=True, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=10)
         # We have to see, if all those parameters are necessary for the valloader as well (based on resource consumption)
@@ -113,14 +111,14 @@ class Trainer:
 
                 log_dict = {}
                 # Iterate over the trainset
-                train_stats = self.__process_epoch__(self.dataloader)
+                train_stats = self.__process_ext_epoch__(self.dataloader)
                 for k in train_stats:
                     log_dict["train_"+k] = train_stats[k]
 
                 self.model.eval()
                 self.train_mode = False
                 # Iterate over the valset
-                val_stats = self.__process_epoch__(self.valloader)
+                val_stats = self.__process_ext_epoch__(self.valloader)
                 for k in val_stats:
                     log_dict["val_"+k] = val_stats[k]
                 
@@ -151,13 +149,102 @@ class Trainer:
                     if checkpoint_path.is_file():
                         os.remove(checkpoint_path)
 
-    def __process_epoch__(self, dataloader: DataLoader) -> Dict[str, float]:
+    def train_abs(self,
+              epochs: int= 10,
+              lr: float= 5e-4,
+              patience: int=5,
+              cuda: bool= True,
+              workers: int=4):
+        """ Starts the training iteration for the given model and dataset
+            Params:
+                epochs = number of iterations through the whole dataset
+                lr = learning rate used for optimization of the model
+                lr_scheduler = (if not None) used to update the current learning rate
+                patience = after patience epochs with no improvement in validation performance stop the training
+                cuda = if we want to use the GPU during training
+                workers = number of processes used for data loading
+        """
+        assert self.abstractive
+        col = collate_abs
+
+        self.dataloader = DataLoader(self.trainset, shuffle=True, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=10)
+        # We have to see, if all those parameters are necessary for the valloader as well (based on resource consumption)
+        self.valloader = DataLoader(self.valset, shuffle=False, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=10)
+        print("Created dataloaders")
+
+        self.cuda = cuda
+        if self.cuda:
+            self.model = self.model.cuda()
+        print(self.model)
+
+        self.optim = Adam(self.model.parameters(),lr=lr)
+        self.lr_scheduler = MultiplicativeLR(self.optim, lambda e: 0.95)
+        self.start_epoch = 0
+
+        # Will update the variables model, optim, lr_scheduler; if there is a checkpoint in the model folder (model/checkpoint.pth)
+        self.__load_checkpoint__()
+
+        self.patience = patience
+        best_loss = np.inf
+        for it in tqdm(range(self.start_epoch, epochs), desc="Training"):
+            try:
+                self.model.train()
+                self.train_mode = True
+
+                log_dict = {}
+                # Iterate over the trainset
+                train_stats = self.__process_abs_epoch__(self.dataloader)
+                for k in train_stats:
+                    log_dict["train_"+k] = train_stats[k]
+
+                self.model.eval()
+                self.train_mode = False
+                # Iterate over the valset
+                val_stats = self.__process_abs_epoch__(self.valloader)
+                for k in val_stats:
+                    log_dict["val_"+k] = val_stats[k]
+                
+                for k in ["train_TP", "train_FP", "train_TN", "train_FN", "val_TP", "val_FP", "val_TN", "val_FN"]:
+                    if k in log_dict:
+                        del log_dict[k]
+                
+                # logging
+                self.logger.log_epoch(log_dict)
+
+                if val_stats["loss"] < best_loss:
+                    self.patience = patience
+                    best_loss = val_stats["loss"]
+                    self.__save_model__()
+                else:
+                    self.patience -= 1
+                    if self.patience <= 0:
+                        break
+
+            except KeyboardInterrupt:
+                # We will use the KeyboardInterrupt, if we want to end/stop a training in between
+                decision = input("Save training state? (y/n)")
+                if decision.lower() == "y":
+                    self.__save_training__(it)
+                else:
+                    # We have to remove any checkpoint files
+                    checkpoint_path = Path("model")/"checkpoint.pth"
+                    if checkpoint_path.is_file():
+                        os.remove(checkpoint_path)
+
+
+    def __process_ext_epoch__(self, dataloader: DataLoader) -> Dict[str, float]:
         epoch_stats = {}
         for data in tqdm(dataloader, "Batch"):
-            if self.abstractive:
-                stats = self.__process_abstr_batch__(data)
-            else:
-                stats = self.__process_extr_batch__(data)
+            stats = self.__process_extr_batch__(data)
+            # The loss or other important metrics are saved to the 
+            epoch_stats = merge_epoch(epoch_stats, stats)
+        self.lr_scheduler.step()
+        return finalize_statistic(epoch_stats)
+
+    def __process_abs_epoch__(self, dataloader: DataLoader) -> Dict[str, float]:
+        epoch_stats = {}
+        for data in tqdm(dataloader, "Batch"):
+            stats = self.__process_abstr_batch__(data)
             # The loss or other important metrics are saved to the 
             epoch_stats = merge_epoch(epoch_stats, stats)
         self.lr_scheduler.step()
@@ -167,43 +254,44 @@ class Trainer:
         batch_stats = {}
         # Each entry in data is one document containing an abitrary number of sentences
         for batch in data:
-            for tar, leng, facts, facts_mask, reason, reason_mask in batch:
-                # target, lengths, facts, fact mask, reasoning, reasoning_mask, norms
-                self.optim.zero_grad()
-                
-                # run model
-                if self.cuda:
-                    tar = tar.cuda()
-                    facts = facts.cuda()
-                    facts_mask = facts_mask.cuda()
-                    reason = reason.cuda()
-                    reason_mask = reason_mask.cuda()
+            tar, leng, facts, facts_mask, reason, reason_mask = batch
+            # target, lengths, facts, fact mask, reasoning, reasoning_mask, norms
+            self.optim.zero_grad()
+            
+            # run model
+            if self.cuda:
+                tar = tar.cuda()
+                facts = facts.cuda()
+                facts_mask = facts_mask.cuda()
+                reason = reason.cuda()
+                reason_mask = reason_mask.cuda()
 
-                loss = torch.zeros(1)
-                # Sentence for sentence generation
-                for t, l in self.__abs_minibatch__(tar, leng):
-                    # In this training case, we will produce the output word for word, i.e. we need to mask all words up to the current one
-                    for i in range(l[0]):
-                        pred = self.model(t[:i], facts, facts_mask, reason, reason_mask)
-                        pred = pred[t[i]]       
-                        # Accumulate loss over multiple batches/documents
-                        loss -= torch.sum(torch.log(pred+1e-8))
-                if self.train_mode:
-                    # backpropagation
-                    loss.backward()
-                    # We might want to do some gradient clipping
-                    #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
-                    self.optim.step()
-                    
+            loss = torch.zeros(1).cuda()
+            # Sentence for sentence generation
+            for t, l in self.__abs_minibatch__(tar, leng):
+                # In this training case, we will produce the output word for word, i.e. we need to mask all words up to the current one
+                for i in range(l[0]):
+                    pred = self.model(t[:i], facts, facts_mask, reason, reason_mask)
+                    tar_ind = t[:,i]
+                    pred = pred[tar_ind]       
+                    # Accumulate loss over multiple batches/documents
+                    loss -= torch.sum(torch.log(pred+1e-8))
+            if self.train_mode:
+                # backpropagation
+                loss.backward()
+                # We might want to do some gradient clipping
+                #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+                self.optim.step()
                 
-                # Identify which statistics are pushed to the epoch method
-                # evaluate batch
-                np_loss = loss.cpu().detach().numpy()
-                result = {
-                    "loss": np_loss
-                }
+            
+            # Identify which statistics are pushed to the epoch method
+            # evaluate batch
+            np_loss = loss.cpu().detach().numpy()
+            result = {
+                "loss": np_loss[0]
+            }
 
-                batch_stats = merge(batch_stats, result)
+            batch_stats = merge(batch_stats, result)
 
         return batch_stats
 
@@ -311,10 +399,7 @@ class Trainer:
             yield x, y, mask
 
     def __abs_minibatch__(self, target: torch.Tensor, length: torch.Tensor):
-        print("------------")
-        print(target.shape)
         for t, l in zip(torch.split(target, 1), torch.split(length, 1)):
-            print(t.shape)
             yield t, l
 
     def __save_model__(self):

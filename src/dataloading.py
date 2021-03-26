@@ -43,6 +43,7 @@ class LossType(Enum):
     HAMM_LOGI = 2
     SUBSET_HINGE = 3
     SUBSET_LOGI = 4
+    ABS = 5
 
 class ExtractiveDataset(Dataset):
     """ Dataset used for the extractive summarization training """
@@ -102,11 +103,6 @@ class AbstractiveDataset(Dataset):
         self.tokenizer = tokenizer
         self.load_norms = load_norms
 
-        # Each loss needs different type of tensor as target...
-        if loss_type == LossType.BCE:
-            self.value, self.default, self.dtype = 1.0, 0.0, torch.float32
-        else:
-            self.value, self.default, self.dtype = 1.0, 0.0, torch.float32
         # It is possible to use the transform function to cap the number of indices per sentence etc.
         self.transform = transform
 
@@ -118,10 +114,14 @@ class AbstractiveDataset(Dataset):
         f = []
         for ind in verdict["facts"]:
             f.append(self.__lam__(ind))
+        if len(f) == 0:
+            f.append(self.__lam__([0]))
 
         r = []
         for ind in verdict["reasoning"]:
             r.append(self.__lam__(ind))
+        if len(r) == 0:
+            r.append(self.__lam__([0]))
         
         y = []
         for ind in verdict["guiding_principle"]:
@@ -190,7 +190,7 @@ def collate_abs(batch: List[Tuple[List[torch.Tensor], List[torch.Tensor], List[t
         f_m = (f!=0)
         r = torch.nn.utils.rnn.pad_sequence(doc[1], batch_first=True)
         r_m = (r!=0)
-        res.append(t, l, f, f_m, r, r_m)
+        res.append([t, l, f, f_m, r, r_m])
     
     return res
 

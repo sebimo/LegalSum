@@ -186,10 +186,9 @@ class CrossSentenceRNN(nn.Module):
         self.linear = nn.Linear(self.cross_sentence_size[1]*self.directions, self.cross_sentence_size[1])
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        # TODO we do not want sentence by sentence prediction
-        X, _ = self.gru(X[None,:,:])
-        X = self.linear(X)
-        X = torch.squeeze(X, dim=0)
+        # We do not want sentence by sentence prediction
+        X, _ = self.gru(torch.unsqueeze(X, -3))
+        X = self.linear(X[:,-1,:])
         return X
 
     def get_name(self):
@@ -227,7 +226,6 @@ class RNNPrevEncoder(nn.Module):
 
         X = self.reduction2(X)
         X = self.activation(X)
-        X = self.classification(X)
 
         return X
 
@@ -250,13 +248,12 @@ class Decoder(nn.Module):
             nn.ReLU(),
             nn.Linear(self.embed_size, self.output_size)
         )
-        self.softmax = nn.Softmax()
+        self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, facts: torch.Tensor, reasoning: torch.Tensor, previous: torch.Tensor):
-        print(facts.shape, reasoning.shape, previous.shape)
         # We might need to use different stacking functions
         X = torch.hstack([facts, reasoning, previous])
-        X = self.layers(X)
+        X = self.layers(X.squeeze(0))
 
         return self.softmax(X)
 
@@ -280,7 +277,7 @@ class AbstractiveModel(nn.Module):
     def forward(self, previous, facts, facts_mask, reason, reason_mask):
         # Will only produce one word
         if previous.shape[0] == 0:
-            previous = torch.zeros(self.prev_size).to(previous.device)
+            previous = torch.zeros([1,self.prev_size[0]], dtype=torch.long).to(previous.device)
         p_tensor = self.prev_encoder(previous)
 
         f_tensor = self.body_encoder(facts, facts_mask)

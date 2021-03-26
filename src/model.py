@@ -415,6 +415,7 @@ class RNNCrossEncoder(nn.Module):
         )
 
         self.layers = layers
+        self.bidirectional = False
 
         self.gru = nn.GRU(self.embedding_size, self.embedding_size, num_layers=layers, bidirectional=self.bidirectional)
         self.gru_size = self.embedding_size*(2 if self.bidirectional else 1)
