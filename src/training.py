@@ -150,11 +150,13 @@ class Trainer:
                         os.remove(checkpoint_path)
 
     def train_abs(self,
-              epochs: int= 10,
+              epochs: int= 30,
               lr: float= 5e-4,
-              patience: int=5,
+              patience: int=7,
               cuda: bool= True,
-              workers: int=4):
+              workers: int=1,
+              train_step_size: int=1000,
+              val_step_size: int=100):
         """ Starts the training iteration for the given model and dataset
             Params:
                 epochs = number of iterations through the whole dataset
@@ -163,13 +165,15 @@ class Trainer:
                 patience = after patience epochs with no improvement in validation performance stop the training
                 cuda = if we want to use the GPU during training
                 workers = number of processes used for data loading
+                train_step_size = how many batches to process before evaluation
+                eval_step_size = how many verdicts to evaluate
         """
         assert self.abstractive
         col = collate_abs
 
-        self.dataloader = DataLoader(self.trainset, shuffle=True, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=10)
+        self.dataloader = DataLoader(self.trainset, shuffle=True, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=4)
         # We have to see, if all those parameters are necessary for the valloader as well (based on resource consumption)
-        self.valloader = DataLoader(self.valset, shuffle=False, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=10)
+        self.valloader = DataLoader(self.valset, shuffle=False, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=4)
         print("Created dataloaders")
 
         self.cuda = cuda
@@ -193,20 +197,33 @@ class Trainer:
 
                 log_dict = {}
                 # Iterate over the trainset
-                train_stats = self.__process_abs_epoch__(self.dataloader)
+                epoch_stats = {}
+                for i, data in tqdm(enumerate(self.__train_iter__()), desc="TrainSteps", total=train_step_size):
+                    stats = self.__process_abstr_batch__(data)
+                    # The loss or other important metrics are saved to the 
+                    epoch_stats = merge_epoch(epoch_stats, stats)
+                    if i+1 >= train_step_size:
+                        break
+                self.lr_scheduler.step()
+               
+                train_stats =  finalize_statistic(epoch_stats)
                 for k in train_stats:
                     log_dict["train_"+k] = train_stats[k]
 
                 self.model.eval()
                 self.train_mode = False
                 # Iterate over the valset
-                val_stats = self.__process_abs_epoch__(self.valloader)
+                val_epoch_stats = {}
+                for i, data in tqdm(enumerate(self.__val_iter__()), desc="ValSteps", total=val_step_size):
+                    stats = self.__process_abstr_batch__(data)
+                    # The loss or other important metrics are saved to the 
+                    val_epoch_stats = merge_epoch(epoch_stats, stats)
+                    if i+1 >= val_step_size:
+                        break
+                
+                val_stats = finalize_statistic(val_epoch_stats)
                 for k in val_stats:
                     log_dict["val_"+k] = val_stats[k]
-                
-                for k in ["train_TP", "train_FP", "train_TN", "train_FN", "val_TP", "val_FP", "val_TN", "val_FN"]:
-                    if k in log_dict:
-                        del log_dict[k]
                 
                 # logging
                 self.logger.log_epoch(log_dict)
@@ -231,6 +248,19 @@ class Trainer:
                     if checkpoint_path.is_file():
                         os.remove(checkpoint_path)
 
+    def __val_iter__(self):
+        # For the abstractive methods, we do not want to evaluate after all the verdicts. In order to do so, we need to seperate the data loading with the training
+        # We want to be able to continously load from the valloader
+        while True:
+            for data in self.valloader:
+                yield data
+
+    def __train_iter__(self):
+        # For the abstractive methods, we do not want to evaluate after all the verdicts. In order to do so, we need to seperate the data loading with the training
+        # We want to be able to continously load from the trainloader
+        while True:
+            for data in self.dataloader:
+                yield data
 
     def __process_ext_epoch__(self, dataloader: DataLoader) -> Dict[str, float]:
         epoch_stats = {}

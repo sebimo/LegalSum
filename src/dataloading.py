@@ -111,23 +111,25 @@ class AbstractiveDataset(Dataset):
         verdict = self.tokenizer.tokenize_verdict(verdict_path)
         
         # Define collate function that can deal with variable list lengths
+        # Only very few sentences are above 40 tokens, we want to cut them here to decrease the variable memory needed in the GPU
         f = []
         for ind in verdict["facts"]:
-            f.append(self.__lam__(ind))
+            f.append(self.__lam__(ind[:40]))
         if len(f) == 0:
             f.append(self.__lam__([0]))
 
         r = []
         for ind in verdict["reasoning"]:
-            r.append(self.__lam__(ind))
+            r.append(self.__lam__(ind[:40]))
         if len(r) == 0:
             r.append(self.__lam__([0]))
         
         y = []
         for ind in verdict["guiding_principle"]:
-            y.append(self.__lam__(ind))
+            y.append(torch.LongTensor(ind[:40]))
 
-        return f, r, y
+        # We will also reduce the number of sentence verdict to the average + 5
+        return f[:40], r[:80], y
 
     def __len__(self):
         return len(self.verdicts)

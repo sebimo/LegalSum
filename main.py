@@ -5,7 +5,7 @@ import numpy as np
 
 from src.training import Trainer
 from src.model import RNNEncoder, HierarchicalEncoder, CNNEncoder, CNNCrossEncoder, HierarchicalCrossEncoder, CrossSentenceCNN, CrossSentenceRNN, RNNCrossEncoder
-from src.abs_model import AbstractiveModel, Decoder, RNNPrevEncoder, CrossSentenceRNN as AbsCrossSentenceRNN, CNNCrossEncoder as AbsCNNCrossEncoder
+from src.abs_model import AbstractiveModel, Decoder, RNNPrevEncoder, CrossSentenceRNN as AbsCrossSentenceRNN, CNNCrossEncoder as AbsCNNCrossEncoder, CrossSentenceCNN as AbsCrossSentenceCNN
 from src.embedding import Word2Vec, GloVe
 from src.dataloading import ExtractiveDataset, get_train_files, get_val_files, LossType, transform_cutoff, get_greedy_train_files, get_greedy_val_files
 from src.dataloading import AbstractiveDataset
@@ -79,7 +79,7 @@ def start_abstractive():
     cross_sentence_size = [100, 100]
     attention = "NONE"
 
-    num_epochs = 20
+    num_epochs = 30
 
     # ATTENTION: We can include here a different mapping between tokens and ids, if we for example use word2vec
     tok = Tokenizer(TOKENIZER_PATH, normalize=True, mapping=embedding.get_word_mapping())
@@ -88,14 +88,14 @@ def start_abstractive():
         LossType.ABS: "ABS"
     }
 
-    trainset = AbstractiveDataset(get_train_files()[:10], tok)
-    valset = AbstractiveDataset(get_val_files()[:10], tok)
+    trainset = AbstractiveDataset(get_train_files(), tok)
+    valset = AbstractiveDataset(get_val_files(), tok)
 
     for _ in range(1):
         decoder = Decoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
                           output_size=tok.get_num_tokens())
         prev_encoder = RNNPrevEncoder(embedding, embedding_size=embedding_size)
-        cross_sentence = AbsCrossSentenceRNN(cross_sentence_size=cross_sentence_size)
+        cross_sentence = AbsCrossSentenceCNN(cross_sentence_size=cross_sentence_size)
         body_encoder = AbsCNNCrossEncoder(embedding, 
                                           cross_sentence, 
                                           embedding_size=embedding_size,
@@ -120,7 +120,7 @@ def start_abstractive():
         logger.start_experiment(logger_params)
 
         trainer = Trainer(model, trainset, valset, logger, True)
-        trainer.train_abs(epochs=num_epochs, lr=lr, workers=1)
+        trainer.train_abs(epochs=num_epochs, lr=lr, train_step_size=1000, val_step_size=100)
 
 def random_log_lr(lr_range: Tuple[float, float]=(1e-2, 1e-5)) -> float:
     """ Will draw a random learning rate on a logarithmic scale, i.e. drawing the  lr from (1e-5, 1e-4) is as likely as from (1e-2,1e-1) """
