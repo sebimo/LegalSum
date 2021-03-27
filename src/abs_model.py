@@ -58,7 +58,7 @@ class HierarchicalCrossEncoder(nn.Module):
         self.sig = nn.Sigmoid()
     
     def forward(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        X = self._embedding(X)
+        X = self.embedding(X)
         # Use the mask to exlude any embeddings of  padded vectors
         X = torch.mul(mask.unsqueeze(-1), X)
 
@@ -74,7 +74,7 @@ class HierarchicalCrossEncoder(nn.Module):
         return X
 
     def get_name(self):
-        return "HIER"+self._cross_sentence_layer.get_name()
+        return "HIER"+self.cross_sentence_layer.get_name()
 
 class CNNCrossEncoder(nn.Module):
 
@@ -136,7 +136,7 @@ class CNNCrossEncoder(nn.Module):
         return X
 
     def get_name(self):
-        return "CNN"+self._cross_sentence_layer.get_name()
+        return "CNN"+self.cross_sentence_layer.get_name()
 
 
 class CrossSentenceCNN(nn.Module):
@@ -276,8 +276,6 @@ class AbstractiveModel(nn.Module):
 
     def forward(self, previous, facts, facts_mask, reason, reason_mask):
         # Will only produce one word
-        if previous.shape[0] == 0:
-            previous = torch.zeros([1,self.prev_size[0]], dtype=torch.long).to(previous.device)
         p_tensor = self.prev_encoder(previous)
 
         f_tensor = self.body_encoder(facts, facts_mask)
