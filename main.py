@@ -75,11 +75,11 @@ def start_abstractive():
     logger.set_status(LOGGER_ON)
 
     embedding_size = 100
-    embedding = GloVe(embedding_size=embedding_size)
+    embedding = GloVe(embedding_size=embedding_size, abstractive=True)
     cross_sentence_size = [100, 100]
     attention = "NONE"
 
-    num_epochs = 30
+    num_epochs = 200
 
     # ATTENTION: We can include here a different mapping between tokens and ids, if we for example use word2vec
     tok = Tokenizer(TOKENIZER_PATH, normalize=True, mapping=embedding.get_word_mapping())
@@ -120,7 +120,7 @@ def start_abstractive():
         logger.start_experiment(logger_params)
 
         trainer = Trainer(model, trainset, valset, logger, True)
-        trainer.train_abs(epochs=num_epochs, lr=lr, train_step_size=1000, val_step_size=100)
+        trainer.train_abs(epochs=num_epochs, lr=lr, train_step_size=1000, val_step_size=100, patience=20)
 
 def random_log_lr(lr_range: Tuple[float, float]=(1e-2, 1e-5)) -> float:
     """ Will draw a random learning rate on a logarithmic scale, i.e. drawing the  lr from (1e-5, 1e-4) is as likely as from (1e-2,1e-1) """

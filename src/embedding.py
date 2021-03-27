@@ -19,7 +19,8 @@ class Word2Vec(nn.Module):
     def __init__(self,
                  n_tokens: int=-1, 
                  embedding_size: int=100,
-                 embedding_path: Path=Path("embedding")/"word2vec"/"100.wv"):
+                 embedding_path: Path=Path("embedding")/"word2vec"/"100.wv",
+                 abstractive=False):
         super().__init__()
         word_model = KeyedVectors.load(str(embedding_path), mmap='r')
         self.id2tok, self.tok2id = {}, {}
@@ -31,6 +32,11 @@ class Word2Vec(nn.Module):
         word_model = torch.tensor(word_model.wv.vectors)
         self.embedding_size = embedding_size
         assert self.embedding_size == 100, "Pretrained word2vec embeddings have size 100"
+        if abstractive:
+            # We need to add one token ending a sentence
+            word_model = torch.cat([word_model, torch.zeros([1,self.embedding_size], dtype=torch.float32)])
+            self.id2tok[word_model.shape[0]] = "<end>"
+            self.tok2id["<end>"] = word_model.shape[0]
         self.embedding = nn.Embedding.from_pretrained(word_model)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -48,7 +54,8 @@ class GloVe(nn.Module):
     def __init__(self,
                  n_tokens: int=-1,
                  embedding_size: int=100,
-                 embedding_path: Path=Path("embedding")/"glove"/"glove.pkl"):
+                 embedding_path: Path=Path("embedding")/"glove"/"glove.pkl",
+                 abstractive=False):
         super().__init__()
         with open(embedding_path, "rb") as f:
             d = pickle.load(f)
@@ -57,6 +64,11 @@ class GloVe(nn.Module):
         self.embedding_size = embedding_size
         assert self.embedding_size == 100, "Pretrained GloVe embeddings have size 100"
         glove = torch.tensor(d["wv"], dtype=torch.float32)
+        if abstractive:
+            # We need to add one token ending a sentence
+            glove = torch.cat([glove, torch.zeros([1,self.embedding_size], dtype=torch.float32)])
+            self.id2tok[glove.shape[0]] = "<end>"
+            self.tok2id["<end>"] = glove.shape[0]
         self.embedding = nn.Embedding.from_pretrained(glove)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
