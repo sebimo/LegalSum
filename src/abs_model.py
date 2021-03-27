@@ -290,4 +290,4 @@ class AbstractiveModel(nn.Module):
         pass
 
     def get_name(self):
-        return self.body_encoder._get_name()+"_PRE_"+self.prev_encoder._get_name()+"_DEC_"+self.decoder._get_name()
+        return self.body_encoder.get_name()+"_PRE_"+self.prev_encoder.get_name()+"_DEC_"+self.decoder.get_name()
