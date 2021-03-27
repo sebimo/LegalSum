@@ -159,8 +159,8 @@ class CrossSentenceCNN(nn.Module):
         # TODO we do not want sentence by sentence prediction
         X = torch.transpose(X[None,:,:], -1, -2)
         X = self.conv(X)
-        X = torch.squeeze(X, dim=0)
-        return torch.transpose(X, -1, -2)
+        X = torch.amax(torch.transpose(X, -1, -2), dim=-2)
+        return X
 
     def get_name(self):
         return "_CNN"
