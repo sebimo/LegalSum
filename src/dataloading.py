@@ -102,6 +102,8 @@ class AbstractiveDataset(Dataset):
         self.verdicts = verdict_paths
         self.tokenizer = tokenizer
         self.load_norms = load_norms
+        # We need to know when to stop generating -> this is always dependend on the tokenizer, i.e. the lowest number not taken is our ending token
+        self.ENDING_TOKEN = self.tokenizer.get_num_tokens()-1
 
         # It is possible to use the transform function to cap the number of indices per sentence etc.
         self.transform = transform
@@ -126,7 +128,9 @@ class AbstractiveDataset(Dataset):
         
         y = []
         for ind in verdict["guiding_principle"]:
-            y.append(torch.LongTensor(ind[:40]))
+            # Startoff sentence with <unk> (we need to create zero vector any way for model as giving the prev encoder no vector would increase the complexity more)
+            # Append ending token (token with highest id) to stop generating
+            y.append(torch.LongTensor([0]+ind[:50]+[self.ENDING_TOKEN]))
 
         # We will also reduce the number of sentence verdict to the average + 5
         return f[:40], r[:80], y

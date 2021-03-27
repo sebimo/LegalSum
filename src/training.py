@@ -202,7 +202,7 @@ class Trainer:
                     stats = self.__process_abstr_batch__(data)
                     # The loss or other important metrics are saved to the 
                     epoch_stats = merge_epoch(epoch_stats, stats)
-                    if i+1 >= train_step_size:
+                    if i >= train_step_size:
                         break
                 self.lr_scheduler.step()
                
@@ -217,8 +217,8 @@ class Trainer:
                 for i, data in tqdm(enumerate(self.__val_iter__()), desc="ValSteps", total=val_step_size):
                     stats = self.__process_abstr_batch__(data)
                     # The loss or other important metrics are saved to the 
-                    val_epoch_stats = merge_epoch(epoch_stats, stats)
-                    if i+1 >= val_step_size:
+                    val_epoch_stats = merge_epoch(val_epoch_stats, stats)
+                    if i >= val_step_size:
                         break
                 
                 val_stats = finalize_statistic(val_epoch_stats)
@@ -236,6 +236,9 @@ class Trainer:
                     self.patience -= 1
                     if self.patience <= 0:
                         break
+                
+                # We have some GPU memory leak, but up to now it was not possible to find is. Clearing the GPU cache mitigates this problem though.
+                torch.cuda.empty_cache()
 
             except KeyboardInterrupt:
                 # We will use the KeyboardInterrupt, if we want to end/stop a training in between
@@ -300,7 +303,8 @@ class Trainer:
             # Sentence for sentence generation
             for t, l in self.__abs_minibatch__(tar, leng):
                 # In this training case, we will produce the output word for word, i.e. we need to mask all words up to the current one
-                for i in range(l[0]):
+                # We start at index one as the first word is an <unk> token
+                for i in range(1, l[0]):
                     pred = self.model(t[:i], facts, facts_mask, reason, reason_mask)
                     tar_ind = t[:,i]
                     pred = pred[tar_ind]       
@@ -316,9 +320,9 @@ class Trainer:
             
             # Identify which statistics are pushed to the epoch method
             # evaluate batch
-            np_loss = loss.cpu().detach().numpy()
+            np_loss = loss.cpu().item()
             result = {
-                "loss": np_loss[0]
+                "loss": np_loss
             }
 
             batch_stats = merge(batch_stats, result)
