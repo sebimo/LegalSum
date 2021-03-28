@@ -1,3 +1,6 @@
+import os
+# Some package is overwriting the ctrl-c event, thus we need to stop this
+os.environ['FOR_DISABLE_CONSOLE_CTRL_HANDLER'] = '1'
 from pathlib import Path
 from typing import Tuple
 
@@ -14,7 +17,7 @@ from src.model_logging.logger import Logger as MyLogger
 
 ABSTRACTIVE = True
 TOKENIZER_PATH = Path("model")
-LOGGER_ON = True
+LOGGER_ON = False
 EMBEDDINGS = ["training", "word2vec", "glove"]
 
 def start_extractive():
@@ -88,8 +91,8 @@ def start_abstractive():
         LossType.ABS: "ABS"
     }
 
-    trainset = AbstractiveDataset(get_train_files(), tok)
-    valset = AbstractiveDataset(get_val_files(), tok)
+    trainset = AbstractiveDataset(get_train_files()[:100], tok)
+    valset = AbstractiveDataset(get_val_files()[:100], tok)
 
     for _ in range(1):
         decoder = Decoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
@@ -120,9 +123,9 @@ def start_abstractive():
         logger.start_experiment(logger_params)
 
         trainer = Trainer(model, trainset, valset, logger, True)
-        trainer.train_abs(epochs=num_epochs, lr=lr, train_step_size=1000, val_step_size=100, patience=20)
+        trainer.train_abs(epochs=num_epochs, lr=lr, train_step_size=20, val_step_size=10, patience=40)
 
-def random_log_lr(lr_range: Tuple[float, float]=(1e-2, 1e-5)) -> float:
+def random_log_lr(lr_range: Tuple[float, float]=(1e-3, 1e-6)) -> float:
     """ Will draw a random learning rate on a logarithmic scale, i.e. drawing the  lr from (1e-5, 1e-4) is as likely as from (1e-2,1e-1) """
     # convert bounds to logarithmic scale
     log_lower = np.log(lr_range[0])

@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.optim import SparseAdam, Adam, SGD
 from torch.optim.lr_scheduler import MultiplicativeLR
 
-from .dataloading import ExtractiveDataset, collate, collate_abs, LossType
+from .dataloading import ExtractiveDataset, collate, collate_abs, collate_abs_long, LossType
 from .preprocessing import Tokenizer
 from .evaluation import merge, merge_epoch, finalize_statistic, calculate_confusion_matrix, evaluate
 from .model import save_model
@@ -96,7 +96,7 @@ class Trainer:
 
 
         self.optim = Adam(self.model.parameters(),lr=lr)
-        self.lr_scheduler = MultiplicativeLR(self.optim, lambda e: 0.95)
+        self.lr_scheduler = MultiplicativeLR(self.optim, _mult_lr_factor_)
         self.start_epoch = 0
 
         # Will update the variables model, optim, lr_scheduler; if there is a checkpoint in the model folder (model/checkpoint.pth)
@@ -169,11 +169,13 @@ class Trainer:
                 eval_step_size = how many verdicts to evaluate
         """
         assert self.abstractive
-        col = collate_abs
+        col = collate_abs_long
 
-        self.dataloader = DataLoader(self.trainset, shuffle=True, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=4)
+        #self.dataloader = DataLoader(self.trainset, shuffle=True, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=4)
+        self.dataloader = DataLoader(self.trainset, shuffle=True, pin_memory=True, collate_fn=col)
         # We have to see, if all those parameters are necessary for the valloader as well (based on resource consumption)
-        self.valloader = DataLoader(self.valset, shuffle=False, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=4)
+        #self.valloader = DataLoader(self.valset, shuffle=False, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=4)
+        self.valloader = DataLoader(self.valset, shuffle=False, pin_memory=True, collate_fn=col)
         print("Created dataloaders")
 
         self.cuda = cuda
@@ -182,7 +184,7 @@ class Trainer:
         print(self.model)
 
         self.optim = Adam(self.model.parameters(),lr=lr)
-        self.lr_scheduler = MultiplicativeLR(self.optim, lambda e: 0.95)
+        self.lr_scheduler = MultiplicativeLR(self.optim, _mult_lr_factor_)
         self.start_epoch = 0
 
         # Will update the variables model, optim, lr_scheduler; if there is a checkpoint in the model folder (model/checkpoint.pth)
@@ -190,8 +192,8 @@ class Trainer:
 
         self.patience = patience
         best_loss = np.inf
-        for it in tqdm(range(self.start_epoch, epochs), desc="Training"):
-            try:
+        try:
+            for it in tqdm(range(self.start_epoch, epochs), desc="Training"):
                 self.model.train()
                 self.train_mode = True
 
@@ -205,7 +207,7 @@ class Trainer:
                     if i >= train_step_size:
                         break
                 self.lr_scheduler.step()
-               
+            
                 train_stats =  finalize_statistic(epoch_stats)
                 for k in train_stats:
                     log_dict["train_"+k] = train_stats[k]
@@ -239,17 +241,17 @@ class Trainer:
                 
                 # We have some GPU memory leak, but up to now it was not possible to find is. Clearing the GPU cache mitigates this problem though.
                 torch.cuda.empty_cache()
-
-            except KeyboardInterrupt:
-                # We will use the KeyboardInterrupt, if we want to end/stop a training in between
-                decision = input("Save training state? (y/n)")
-                if decision.lower() == "y":
-                    self.__save_training__(it)
-                else:
-                    # We have to remove any checkpoint files
-                    checkpoint_path = Path("model")/"checkpoint.pth"
-                    if checkpoint_path.is_file():
-                        os.remove(checkpoint_path)
+        except KeyboardInterrupt:
+            # We will use the KeyboardInterrupt, if we want to end/stop a training in between
+            print("INTERUPTING IS NOT DECENT!11!1!")
+            decision = input("Save training state? (y/n)")
+            if decision.lower() == "y":
+                self.__save_training__(it)
+            else:
+                # We have to remove any checkpoint files
+                checkpoint_path = Path("model")/"checkpoint.pth"
+                if checkpoint_path.is_file():
+                    os.remove(checkpoint_path)
 
     def __val_iter__(self):
         # For the abstractive methods, we do not want to evaluate after all the verdicts. In order to do so, we need to seperate the data loading with the training
@@ -299,8 +301,8 @@ class Trainer:
                 reason = reason.cuda()
                 reason_mask = reason_mask.cuda()
 
-            acc_loss = 0.0
             # Sentence for sentence generation
+            gpu_acc_loss = torch.zeros([1]).cuda()
             for t, l in self.__abs_minibatch__(tar, leng):
                 # In this training case, we will produce the output word for word, i.e. we need to mask all words up to the current one
                 # We start at index one as the first word is an <unk> token
@@ -313,7 +315,7 @@ class Trainer:
                     if self.train_mode:
                         # backpropagation; split up backprop and optim step, as we otherwise need to keep a gradient model for each word until step
                         loss.backward()
-                    acc_loss += loss.cpu().item()
+                    gpu_acc_loss += loss.item()
             if self.train_mode:
                 # We might want to do some gradient clipping
                 #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
@@ -323,7 +325,7 @@ class Trainer:
             # Identify which statistics are pushed to the epoch method
             # evaluate batch
             result = {
-                "loss": acc_loss
+                "loss": gpu_acc_loss.cpu().item()
             }
 
             batch_stats = merge(batch_stats, result)
@@ -347,6 +349,7 @@ class Trainer:
                     reason = reason.cuda()
                     reason_mask = reason_mask.cuda()
 
+                # TODO Change this as above!!!
                 loss = torch.zeros(1)
                 # Sentence for sentence generation
                 for t, l in self.__abs_minibatch__(tar, leng):
@@ -451,10 +454,11 @@ class Trainer:
         torch.save(checkpoint, Path("model")/"checkpoint.pth")
 
     def __load_checkpoint__(self):
+        print("Checking previous checkpoint...")
         checkpoint_path = Path("model")/"checkpoint.pth"
         if checkpoint_path.is_file():
-            print("Resume training")
-            checkpoint = torch.load()
+            print("Resume training!")
+            checkpoint = torch.load(checkpoint_path)
             self.start_epoch = checkpoint["epoch"]
             self.model.load_state_dict(checkpoint["model"])
             self.optim.load_state_dict(checkpoint["optim"])
@@ -575,3 +579,6 @@ def load_verdict(path: Path, tok: Tokenizer):
     x = torch.nn.utils.rnn.pad_sequence(x, batch_first=True)
     mask = (x!=0)
     return verdict["guiding_principle"], verdict["facts"] + verdict["reasoning"], x, mask
+
+def _mult_lr_factor_(it: int) -> float:
+    return 0.98
