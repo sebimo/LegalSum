@@ -565,6 +565,53 @@ def evaluate_random(verdicts: List[str], equal_length: bool=True) -> Dict:
     
     return scores
 
+def evaluate_abs_model(model: nn.Module, embedding: nn.Module, verdicts: List[str], max_sents: int=3, max_toks: int=150) -> List[Dict[str, float]]:
+    """ Will evaluate a model on all the verdicts given. Some additional parameters are possible to reduce the length 
+        Parameters:
+            model -- the given NN used for the predictions
+            embedding -- the embeddings used for the token <-> id mapping
+            verdicts -- the paths to the verdicts which shall be evaluated
+            max_sents -- maximum number of sentences per created summarization
+            max_toks -- maximum number of tokens to generate; stop if either max_sents or max_toks is met
+    """
+    # Create tokenizer
+    tok = Tokenizer(Path("model"), normalize=True, mapping=embedding.get_word_mapping())
+    model = model.cuda()
+    THRESHOLD = 0.5
+    # We will take the 
+    MAX_NUM_SENTS = max_sents
+    MAX_NUM_TOKENS = max_toks
+    scores = []
+    for verdict in tqdm(verdicts):
+        gp_sents, facts, facts_mask, reason, reason_mask = load_seperated_verdict(verdict, tok) 
+        facts = facts.cuda()
+        reason = reason.cuda()
+        facts_mask = facts_mask.cuda()
+        reason_mask = reason_mask.cuda()
+
+        sent_count = 0
+        tok_count = 0
+        words = [0]
+        while True:
+            # TODO init start vector
+            prev_tensor = torch.tensor(words, dtype=torch.long).cuda()
+            pred = model(prev_tensor, facts, facts_mask, reason, reason_mask)
+            # Get max index; if max_index == max possible index -> end of sentence -> increase sent count
+
+        # TODO convert the words back to text    
+        selected_sentences = []
+
+        labels = []
+        for sent in gp_sents:
+            labels += sent
+
+        if len(selected_sentences) == 0:
+            selected_sentences = ["<unk>"]
+        score = evaluate([labels], [selected_sentences])[0]
+        scores.append(score)
+    
+    return scores
+
 def load_verdict(path: Path, tok: Tokenizer):
     verdict = tok.tokenize_verdict_without_id(path)
     x_1 = list(map(lambda sentence: list(map(lambda token: tok.tok2id[token], sentence)), verdict["facts"]))
@@ -579,6 +626,24 @@ def load_verdict(path: Path, tok: Tokenizer):
     x = torch.nn.utils.rnn.pad_sequence(x, batch_first=True)
     mask = (x!=0)
     return verdict["guiding_principle"], verdict["facts"] + verdict["reasoning"], x, mask
+
+def load_seperated_verdict(path: Path, tok: Tokenizer):
+    verdict = tok.tokenize_verdict_without_id(path)
+    x_1 = list(map(lambda sentence: list(map(lambda token: tok.tok2id[token], sentence)), verdict["facts"]))
+    x_2 = list(map(lambda sentence: list(map(lambda token: tok.tok2id[token], sentence)), verdict["reasoning"]))
+    
+    f = []
+    for ind in x_1:
+        f.append(torch.LongTensor(ind))
+    r = []
+    for ind in x_2:
+        r.append(torch.LongTensor(ind))
+
+    f = torch.nn.utils.rnn.pad_sequence(f, batch_first=True)
+    r = torch.nn.utils.rnn.pad_sequence(r, batch_first=True)
+    f_mask = (f!=0)
+    r_mask = (r!=0)
+    return verdict["guiding_principle"], f, f_mask, r, r_mask
 
 def _mult_lr_factor_(it: int) -> float:
     return 0.98

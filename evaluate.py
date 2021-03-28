@@ -7,8 +7,9 @@ from collections import defaultdict
 from pathlib import Path
 
 from src.dataloading import get_val_files, get_test_files
-from src.training import evaluate_ext_model, evaluate_lead, evaluate_random
+from src.training import evaluate_ext_model, evaluate_lead, evaluate_random, evaluate_abs_model
 from src.model import parse_run_parameters, reload_model
+from src.abs_model import parse_abs_run_parameters, reload_abs_model
 
 def average(scores: List[Dict]) -> Dict:
     num = len(scores)
@@ -49,8 +50,9 @@ def evaluate_randoms(verdicts: List[str]):
         json.dump(acc_score, f, sort_keys=False, indent=4, ensure_ascii=False)
 
 def evaluate_ext_models():
+    file = "logging/ext_test_perf.json"
     try:
-        with io.open("logging/ext_test_perf.json", "r", encoding="utf-8") as f:
+        with io.open(file, "r", encoding="utf-8") as f:
             data = json.load(f)
     except: 
         data = []
@@ -62,10 +64,35 @@ def evaluate_ext_models():
         avg_scores = average(scores)
         print(avg_scores)
         data.append({folder: avg_scores})
-        with io.open("logging/ext_test_perf.json", "w+", encoding="utf-8") as f:
+        with io.open(file, "w+", encoding="utf-8") as f:
+            json.dump(data, f, sort_keys=False, indent=4, ensure_ascii=False)
+
+def evaluate_abs_models(test: bool=False):
+    if test:
+        file = "logging/abs_test_perf.json"
+        file_function = get_test_files
+    else:
+        file = "logging/abs_perf.json"
+        file_function = get_val_files
+
+    try:
+        with io.open(file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except: 
+        data = []
+    for folder in os.listdir(Path("logging/runs/abstractive"))[len(data):]:
+        print(folder)
+        params = parse_abs_run_parameters(folder)
+        model, embedding = reload_abs_model(params)
+        scores = evaluate_abs_model(model, embedding, file_function())
+        avg_scores = average(scores)
+        print(avg_scores)
+        data.append({folder: avg_scores})
+        with io.open(file, "w+", encoding="utf-8") as f:
             json.dump(data, f, sort_keys=False, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
     #evaluate_ext_models()
     #evaluate_leads(get_test_files())
-    evaluate_randoms(get_test_files())
+    #evaluate_randoms(get_test_files())
+    evaluate_abs_models()
