@@ -546,7 +546,7 @@ def parse_run_parameters(filename: str) -> Dict:
     if "lr" in parameters:
         parameters["lr"] = float(parameters["lr"])
     if "abstractive" in parameters:
-        parameters["abstractive"] = True if parameters["abstractive"] == 0 else False
+        parameters["abstractive"] = True if parameters["abstractive"] == "1" else False
     if "attention" in parameters:
         if parameters["attention"] is None:
             del parameters["attention"]
