@@ -1,7 +1,7 @@
 # Model definitions for abstractive summarization
 # I seperated the files to make the model implementations independent. This script will just define some nn.Module; all the utilities are still found in model.py
 # This file might introduce some similar models to the ones defined in model.py, but as we want backward compability + replication we do not want to change the nn.Module in model.py
-
+from pathlib import Path
 from enum import Enum
 from typing import List, Dict
 
@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 
 from .embedding import GloVe, Word2Vec
+from .model import load_model
 
 class AttentionType(Enum):
     DOT = 1
@@ -289,3 +290,85 @@ class AbstractiveModel(nn.Module):
 
     def get_name(self):
         return self.body_encoder.get_name()+"_PRE_"+self.prev_encoder.get_name()+"_DEC_"+self.decoder.get_name()
+
+def parse_abs_run_parameters(filename: str) -> Dict:
+    split = filename.split("_")
+    parameters = {}
+    parameters["modelfile"] = "model/"+"_".join(split[:5])+".model"
+    poss_params = set(["model", "lr", "abstractive", "embedding", "attention", "loss", "target"])
+    param_name = []
+    for s in split[5:]:
+        if s in poss_params:
+            param_name = [s]
+        elif s == "type":
+            param_name.append(s)
+        elif param_name[0] == "model":
+            if "model" in parameters:
+                parameters["model"] += "_"+s
+            else:
+                parameters["model"] = s
+        elif len(param_name) > 0:
+            parameters["_".join(param_name)] = s
+            param_name = []
+        else:
+            raise ValueError("Filename does not follow known format: "+filename)
+
+    # Change the types accordingly
+    if "lr" in parameters:
+        parameters["lr"] = float(parameters["lr"])
+    if "abstractive" in parameters:
+        parameters["abstractive"] = True if parameters["abstractive"] == "1" else False
+    if "attention" in parameters:
+        if parameters["attention"] is None:
+            del parameters["attention"]
+    assert parameters["loss_type"] == "ABS"
+    del parameters["loss_type"]
+    assert parameters["abstractive"]
+    del parameters["abstractive"]
+    assert parameters["target"] == "NONE"
+    del parameters["target"]
+    return parameters
+
+def reload_abs_model(parameters: Dict) -> nn.Module:
+    """ Based on the parameters from above recreate the model """
+    # Create the embeddings:
+    embedding_size = 100
+    cross_sentence_size = [100, 100]
+    if parameters["embedding"] == "glove":
+        embedding = GloVe(embedding_size=embedding_size, abstractive=True)
+    elif parameters["embedding"] == "word2vec":
+        embedding = Word2Vec(embedding_size=embedding_size, abstractive=True)
+    
+    body_param, split = parameters["model"].split("_PRE_")
+    prev_param, dec_param = split.split("_DEC_")
+
+    # Create the body encoder:
+    if body_param == "CNN_CNN":
+        cross_sentence = CrossSentenceCNN(cross_sentence_size=cross_sentence_size)
+        body_encoder = CNNCrossEncoder(embedding, 
+                                       cross_sentence, 
+                                       embedding_size=embedding_size,
+                                       cross_sentence_size=cross_sentence_size)
+    else:
+        raise ValueError("'"+body_param+"' is not a valid body encoder!")
+
+    if prev_param == "RNN":
+        prev_encoder = RNNPrevEncoder(embedding, embedding_size=embedding_size)
+    else:
+        raise ValueError("'"+prev_param+"' is not a valid previous encoder!")
+
+    if dec_param == "LIN":
+        decoder = Decoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
+                          output_size=len(embedding.get_word_mapping()["tok2id"]))
+    else:
+        raise ValueError("'"+dec_param+"' is not a valid decoder!")
+    
+    model = AbstractiveModel(
+        body_encoder,
+        prev_encoder,
+        decoder,
+        prev_size=[embedding_size]
+    )
+
+    model = load_model(model, Path(parameters["modelfile"]), torch.device("cuda:0"))
+    return model, embedding
