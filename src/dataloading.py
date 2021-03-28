@@ -200,6 +200,34 @@ def collate_abs(batch: List[Tuple[List[torch.Tensor], List[torch.Tensor], List[t
     
     return res
 
+def collate_abs_long(batch: List[Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]]) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """ Will transform the given sentence list (each entry in the first list represents a document; sentences from: facts, reasoning, guiding_principle, norms), each to 
+        one sentence tensor with all sentences being padded to the same length.
+        In this collate function each sentence will be appended to the last, with one one end token in between. I.e. this allows us to train the sentence creation continously.
+        Returns:
+            List[Tuple[
+                targets: indices for target words, each row is one sentence,
+                length of target sentence,
+                facts: indices of facts,
+                facts_mask: mask introduced by padding,
+                reasoning: indices of reasoning,
+                reasoning_mask: mask introduced by padding,
+                norms: indices for norm
+            ]]
+    """
+    res = []
+    for doc in batch:
+        t = torch.hstack(doc[2]).unsqueeze(0)
+        l = torch.tensor([sum(sent.shape[0] for sent in doc[2])])
+
+        f = torch.nn.utils.rnn.pad_sequence(doc[0], batch_first=True)
+        f_m = (f!=0)
+        r = torch.nn.utils.rnn.pad_sequence(doc[1], batch_first=True)
+        r_m = (r!=0)
+        res.append([t, l, f, f_m, r, r_m])
+    
+    return res
+
 # Fix train, val, test split
 def fix_data_split(percentage: List[float]=[0.8,0.1,0.1]):
     """ Creates the datasplit via assigning files to the train, val or test set 
