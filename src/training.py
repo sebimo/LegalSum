@@ -299,7 +299,7 @@ class Trainer:
                 reason = reason.cuda()
                 reason_mask = reason_mask.cuda()
 
-            loss = torch.zeros(1).cuda()
+            acc_loss = 0.0
             # Sentence for sentence generation
             for t, l in self.__abs_minibatch__(tar, leng):
                 # In this training case, we will produce the output word for word, i.e. we need to mask all words up to the current one
@@ -309,10 +309,12 @@ class Trainer:
                     tar_ind = t[:,i]
                     pred = pred[tar_ind]       
                     # Accumulate loss over multiple batches/documents
-                    loss -= torch.sum(torch.log(pred+1e-8))
+                    loss = -torch.sum(torch.log(pred+1e-8))
+                    if self.train_mode:
+                        # backpropagation; split up backprop and optim step, as we otherwise need to keep a gradient model for each word until step
+                        loss.backward()
+                    acc_loss += loss.cpu().item()
             if self.train_mode:
-                # backpropagation
-                loss.backward()
                 # We might want to do some gradient clipping
                 #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
                 self.optim.step()
@@ -320,9 +322,8 @@ class Trainer:
             
             # Identify which statistics are pushed to the epoch method
             # evaluate batch
-            np_loss = loss.cpu().item()
             result = {
-                "loss": np_loss
+                "loss": acc_loss
             }
 
             batch_stats = merge(batch_stats, result)
