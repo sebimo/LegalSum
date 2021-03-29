@@ -9,12 +9,7 @@ import torch
 import torch.nn as nn
 
 from .embedding import GloVe, Word2Vec
-from .model import load_model
-
-class AttentionType(Enum):
-    DOT = 1
-    BILINEAR = 2
-    ADDITIVE = 3
+from .model import load_model, AttentionType
 
 class HierarchicalCrossEncoder(nn.Module):
 
@@ -76,6 +71,81 @@ class HierarchicalCrossEncoder(nn.Module):
 
     def get_name(self):
         return "HIER"+self.cross_sentence_layer.get_name()
+
+class Attention(nn.Module):
+
+    def __init__(self,
+                embedding_size: int = 200,
+                attention_type: AttentionType=AttentionType.DOT,
+                attention_sizes: List[int]=[]):
+        """ Arguments:
+                - embedding_size  : size of the incoming token embeddings
+                - attention_type  : the way attention shall be calculated in the model
+                - attention_sizes : additional sizes for the embedding layer
+                    -> AttentionType.DOT : no entries
+                    -> AttentionType.BILINEAR : one additional dimension for the matrix
+                    -> AttentionType.ADDITIVE : one for the s vector, one for the matrices
+        """
+        super(Attention, self).__init__()
+        self.embedding_size = embedding_size
+        self.attention_type = attention_type
+        self.attention_sizes = attention_sizes
+        self.setup_attention()
+        self.attention_softmax__ = nn.Softmax(dim=-1)
+        assert self.attention in [self.dot_attention, self.bilinear_attention, self.additive_attention]
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        weights = self.attention(X)
+        X = torch.mul(X, weights)
+        # Reduce them by summing of all weighted token embeddings (-2 as we want to keep the last embedding dimension)
+        X = torch.sum(X, dim=-2)
+        return X
+
+    def setup_attention(self):
+        """ Will create all the matrices etc. for the  wanted attention type + sets self.attention to the appropriate function """
+        if self.attention_type == AttentionType.DOT:
+            assert len(self.attention_sizes) == 0
+            self.attention = self.dot_attention
+            self.s = nn.Linear(self.embedding_size, 1, bias=False)
+        elif self.attention_type == AttentionType.BILINEAR:
+            assert len(self.attention_sizes) == 1
+            self.attention = self.bilinear_attention
+            self.s = nn.Linear(self.attention_sizes[0], 1, bias=False)
+            self.W = nn.Linear(self.embedding_size, self.attention_sizes[0], bias=False)
+        elif self.attention_type == AttentionType.ADDITIVE:
+            assert len(self.attention_sizes) == 2
+            self.attention = self.additive_attention
+            s = torch.empty((1, self.attention_sizes[0]), dtype=torch.float32, requires_grad=True)
+            # We might want to change the initialization for s
+            nn.init.xavier_normal_(s)
+            self.s = nn.Parameter(s)
+            print(self.s.shape)
+            self.W1 = nn.Linear(self.embedding_size, self.attention_sizes[1], bias=False)
+            self.W2 = nn.Linear(self.attention_sizes[0], self.attention_sizes[1], bias=False)
+            self.v = nn.Linear(self.attention_sizes[1], 1, bias=False)
+            self.tanh = nn.Tanh()
+
+    def dot_attention(self, X: torch.Tensor) -> torch.Tensor:
+        """ e_i = s^T h_i """   
+        weights = self.s(X)
+        # We need to normalize them:
+        weights = self.attention_softmax__(weights)
+        return weights
+
+    def bilinear_attention(self, X: torch.Tensor) -> torch.Tensor:
+        """ e_i = s^T W h_i """
+        weights = self.s(self.W(X))
+        # We need to normalize them:
+        weights = self.attention_softmax__(weights)
+        return weights
+
+    def additive_attention(self, X: torch.Tensor) -> torch.Tensor:
+        """ e_i = v^T tanh(W_1 h_i + W_2 s) """
+        weights = self.W1(X) + self.W2(self.s).unsqueeze_(0)
+        weights = self.tanh(weights)
+        weights = self.v(weights)
+        weights = self.attention_softmax__(weights)
+        return weights
 
 class CNNCrossEncoder(nn.Module):
 
