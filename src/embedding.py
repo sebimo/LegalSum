@@ -35,8 +35,9 @@ class Word2Vec(nn.Module):
         if abstractive:
             # We need to add one token ending a sentence
             word_model = torch.cat([word_model, torch.zeros([1,self.embedding_size], dtype=torch.float32)])
-            self.id2tok[word_model.shape[0]] = "<end>"
-            self.tok2id["<end>"] = word_model.shape[0]
+            assert word_model.shape[0]-1 not in self.id2tok
+            self.id2tok[word_model.shape[0]-1] = "<end>"
+            self.tok2id["<end>"] = word_model.shape[0]-1
         self.embedding = nn.Embedding.from_pretrained(word_model)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -67,8 +68,9 @@ class GloVe(nn.Module):
         if abstractive:
             # We need to add one token ending a sentence
             glove = torch.cat([glove, torch.zeros([1,self.embedding_size], dtype=torch.float32)])
-            self.id2tok[glove.shape[0]] = "<end>"
-            self.tok2id["<end>"] = glove.shape[0]
+            assert glove.shape[0]-1 not in self.id2tok
+            self.id2tok[glove.shape[0]-1] = "<end>"
+            self.tok2id["<end>"] = glove.shape[0]-1
         self.embedding = nn.Embedding.from_pretrained(glove)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
