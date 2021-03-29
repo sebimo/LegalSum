@@ -577,12 +577,12 @@ def evaluate_abs_model(model: nn.Module, embedding: nn.Module, verdicts: List[st
     # Create tokenizer
     tok = Tokenizer(Path("model"), normalize=True, mapping=embedding.get_word_mapping())
     model = model.cuda()
-    THRESHOLD = 0.5
     # We will take the 
     MAX_NUM_SENTS = max_sents
     MAX_NUM_TOKENS = max_toks
+    MAX_INDEX = tok.get_num_tokens()-1
     scores = []
-    for verdict in tqdm(verdicts):
+    for verdict in tqdm(verdicts[:100]):
         gp_sents, facts, facts_mask, reason, reason_mask = load_seperated_verdict(verdict, tok) 
         facts = facts.cuda()
         reason = reason.cuda()
@@ -592,14 +592,38 @@ def evaluate_abs_model(model: nn.Module, embedding: nn.Module, verdicts: List[st
         sent_count = 0
         tok_count = 0
         words = [0]
+        # We will also store the probabilities, as it is way easier to expand this to beam search that way
+        probs = [1.0]
         while True:
-            # TODO init start vector
-            prev_tensor = torch.tensor(words, dtype=torch.long).cuda()
-            pred = model(prev_tensor, facts, facts_mask, reason, reason_mask)
-            # Get max index; if max_index == max possible index -> end of sentence -> increase sent count
+            # Init start vector
+            prev_tensor = torch.tensor(words, dtype=torch.long).cuda()[None,:]
 
-        # TODO convert the words back to text    
-        selected_sentences = []
+            pred = model(prev_tensor, facts, facts_mask, reason, reason_mask)
+            
+            # Get max index; if max_index == max possible index -> end of sentence -> increase sent count
+            # We also do not want to produce an unknown token (i.e. exclude 0 from the max)
+            index = torch.argmax(pred[1:])+1
+            prob = pred[index]
+            index = index.cpu().item()
+            prob = prob.cpu().item()
+            if index == MAX_INDEX:
+                sent_count += 1
+                words.append(MAX_INDEX)
+                probs.append(prob)
+                words.append(0)
+                probs.append(1.0)
+            else:
+                tok_count += 1
+                words.append(index)
+                probs.append(prob)
+
+            if sent_count >= MAX_NUM_SENTS:
+                break
+            elif tok_count >= MAX_NUM_TOKENS:
+                break
+        
+        # Convert the words back to text    
+        selected_sentences = list(map(lambda token: tok.id2tok[token], filter(lambda token: token not in [0,MAX_INDEX], words)))
 
         labels = []
         for sent in gp_sents:
@@ -635,9 +659,13 @@ def load_seperated_verdict(path: Path, tok: Tokenizer):
     f = []
     for ind in x_1:
         f.append(torch.LongTensor(ind))
+    while len(f) < 1:
+        f.append(torch.LongTensor([0]))
     r = []
     for ind in x_2:
         r.append(torch.LongTensor(ind))
+    while len(r) < 1:
+        r.append(torch.LongTensor([0]))
 
     f = torch.nn.utils.rnn.pad_sequence(f, batch_first=True)
     r = torch.nn.utils.rnn.pad_sequence(r, batch_first=True)
