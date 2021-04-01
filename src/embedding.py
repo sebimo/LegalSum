@@ -32,7 +32,18 @@ class Word2Vec(nn.Module):
         word_model = torch.tensor(word_model.wv.vectors)
         self.embedding_size = embedding_size
         assert self.embedding_size == 100, "Pretrained word2vec embeddings have size 100"
+
         if abstractive:
+            # ATTENTION: Due to a problem during vocab generation <num> and <unk> are mapped to the same id. I.e. we need to remap <num> to an unused id, as <unk> should be 0 + insert a zero vector
+            # The extractive models were trained with this wrong mapping; due to time constraints it is not feasible to retrain them right now! 
+            word_model = torch.cat([torch.zeros([1,self.embedding_size], dtype=torch.float32), word_model])
+            assert word_model.shape[0]-1 not in self.id2tok
+            self.id2tok[0] = "<unk>"
+            self.tok2id["<unk>"] = 0
+            self.id2tok[word_model.shape[0]-1] = "<num>"
+            self.tok2id["<num>"] = word_model.shape[0]-1
+            # End of fixup code
+
             # We need to add one token ending a sentence
             word_model = torch.cat([word_model, torch.zeros([1,self.embedding_size], dtype=torch.float32)])
             assert word_model.shape[0]-1 not in self.id2tok
@@ -65,7 +76,18 @@ class GloVe(nn.Module):
         self.embedding_size = embedding_size
         assert self.embedding_size == 100, "Pretrained GloVe embeddings have size 100"
         glove = torch.tensor(d["wv"], dtype=torch.float32)
+
         if abstractive:
+            # ATTENTION: Due to a problem during vocab generation <num> and <unk> are mapped to the same id. I.e. we need to remap <num> to an unused id, as <unk> should be 0 + insert a zero vector
+            # Some extractive models were trained with this wrong mapping; due to time constraints it is not feasible to retrain them right now!  
+            glove = torch.cat([torch.zeros([1,self.embedding_size], dtype=torch.float32), glove])
+            assert glove.shape[0]-1 not in self.id2tok
+            self.id2tok[0] = "<unk>"
+            self.tok2id["<unk>"] = 0
+            self.id2tok[glove.shape[0]-1] = "<num>"
+            self.tok2id["<num>"] = glove.shape[0]-1
+            # End of fixup code
+
             # We need to add one token ending a sentence
             glove = torch.cat([glove, torch.zeros([1,self.embedding_size], dtype=torch.float32)])
             assert glove.shape[0]-1 not in self.id2tok
