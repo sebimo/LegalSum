@@ -133,7 +133,7 @@ class AbstractiveDataset(Dataset):
             y.append(torch.LongTensor([0]+ind[:50]+[self.ENDING_TOKEN]))
 
         # We will also reduce the number of sentence verdict to the average + 5
-        return f[:40], r[:80], y
+        return f[:30], r[:70], y
 
     def __len__(self):
         return len(self.verdicts)
@@ -217,8 +217,9 @@ def collate_abs_long(batch: List[Tuple[List[torch.Tensor], List[torch.Tensor], L
     """
     res = []
     for doc in batch:
-        t = torch.hstack(doc[2]).unsqueeze(0)
-        l = torch.tensor([sum(sent.shape[0] for sent in doc[2])])
+        # We want to remove the zeros at the beginning of the sentences as they are unnecessary, but append one at the very start to denote an unknown state
+        t = torch.hstack([torch.tensor([0], dtype=torch.long)]+[d[1:] for d in doc[2]]).unsqueeze(0)
+        l = torch.tensor([t.shape[1]])
 
         f = torch.nn.utils.rnn.pad_sequence(doc[0], batch_first=True)
         f_m = (f!=0)
