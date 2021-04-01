@@ -169,6 +169,11 @@ class RNNEncoder(nn.Module):
         self.layers = layers
         self.bidirectional = bidirectional
 
+        self.emb_layers = nn.Sequential(
+            nn.Linear(self.embedding_size, self.embedding_size),
+            self.activation,
+        )
+
         self.gru1 = nn.GRU(self.embedding_size, self.embedding_size, num_layers=layers, bidirectional=self.bidirectional)
         self.gru_size = self.embedding_size*(2 if self.bidirectional else 1)
         self.reduction1 = nn.Linear(self.gru_size, self.embedding_size)
@@ -183,6 +188,8 @@ class RNNEncoder(nn.Module):
         X = self.embedding(X)
         # Use the mask to exlude any embeddings of  padded vectors
         X = torch.mul(mask.unsqueeze(-1), X)
+
+        X = self.emb_layers(X)
 
         # RNN over the tokens in a sentence
         X, _ = self.gru1(X)
