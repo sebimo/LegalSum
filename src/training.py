@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
-from torch.optim import SparseAdam, Adam, SGD
+from torch.optim import SparseAdam, Adam, SGD, Adagrad
 from torch.optim.lr_scheduler import MultiplicativeLR
 
 from .dataloading import ExtractiveDataset, collate, collate_abs, collate_abs_long, LossType
@@ -132,7 +132,8 @@ class Trainer:
                 if val_stats["loss"] < best_loss:
                     self.patience = patience
                     best_loss = val_stats["loss"]
-                    self.__save_model__()
+                    if self.logger.on:
+                        self.__save_model__()
                 else:
                     self.patience -= 1
                     if self.patience <= 0:
@@ -172,10 +173,10 @@ class Trainer:
         col = collate_abs_long
 
         #self.dataloader = DataLoader(self.trainset, shuffle=True, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=4)
-        self.dataloader = DataLoader(self.trainset, shuffle=True, pin_memory=True, collate_fn=col)
+        self.dataloader = DataLoader(self.trainset, shuffle=True, pin_memory=True, collate_fn=col, batch_size=10)
         # We have to see, if all those parameters are necessary for the valloader as well (based on resource consumption)
         #self.valloader = DataLoader(self.valset, shuffle=False, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=4)
-        self.valloader = DataLoader(self.valset, shuffle=False, pin_memory=True, collate_fn=col)
+        self.valloader = DataLoader(self.valset, shuffle=False, pin_memory=True, collate_fn=col, batch_size=10)
         print("Created dataloaders")
 
         self.cuda = cuda
@@ -233,7 +234,8 @@ class Trainer:
                 if val_stats["loss"] < best_loss:
                     self.patience = patience
                     best_loss = val_stats["loss"]
-                    self.__save_model__()
+                    if self.logger.on:
+                        self.__save_model__()
                 else:
                     self.patience -= 1
                     if self.patience <= 0:
@@ -288,10 +290,10 @@ class Trainer:
     def __process_abstr_batch__(self, data):
         batch_stats = {}
         # Each entry in data is one document containing an abitrary number of sentences
+        self.optim.zero_grad()
         for batch in data:
             tar, leng, facts, facts_mask, reason, reason_mask = batch
             # target, lengths, facts, fact mask, reasoning, reasoning_mask, norms
-            self.optim.zero_grad()
             
             # run model
             if self.cuda:
@@ -303,32 +305,39 @@ class Trainer:
 
             # Sentence for sentence generation
             gpu_acc_loss = torch.zeros([1]).cuda()
+            gpu_acc_prob = torch.zeros([1]).cuda()
+            num_words = 0
             for t, l in self.__abs_minibatch__(tar, leng):
+                num_words += l[0].item()-1
                 # In this training case, we will produce the output word for word, i.e. we need to mask all words up to the current one
                 # We start at index one as the first word is an <unk> token
-                for i in range(1, l[0]):
-                    pred = self.model(t[:i], facts, facts_mask, reason, reason_mask)
+                for i in range(1, l[0].item()):
+                    pred = self.model(t[:,:i], facts, facts_mask, reason, reason_mask)
                     tar_ind = t[:,i]
-                    pred = pred[tar_ind]       
+                    #max_ind = torch.argmax(pred)
                     # Accumulate loss over multiple batches/documents
-                    loss = -torch.sum(torch.log(pred+1e-8))
+                    loss = (-torch.log(pred[tar_ind]+1e-12))/l[0]
+                    #print(tar_ind, pred[tar_ind], "MAX:", max_ind, pred[max_ind], t[:, :i])
                     if self.train_mode:
                         # backpropagation; split up backprop and optim step, as we otherwise need to keep a gradient model for each word until step
                         loss.backward()
                     gpu_acc_loss += loss.item()
-            if self.train_mode:
-                # We might want to do some gradient clipping
-                #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
-                self.optim.step()
-                
+                    gpu_acc_prob += pred[tar_ind].item()
+
             
             # Identify which statistics are pushed to the epoch method
             # evaluate batch
             result = {
-                "loss": gpu_acc_loss.cpu().item()
+                "loss": gpu_acc_loss.cpu().item(),
+                "probability": gpu_acc_prob.cpu().item()/num_words * 100
             }
 
             batch_stats = merge(batch_stats, result)
+
+        if self.train_mode:
+            # We might want to do some gradient clipping
+            #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+            self.optim.step()
 
         return batch_stats
 
@@ -464,7 +473,7 @@ class Trainer:
             self.optim.load_state_dict(checkpoint["optim"])
             self.lr_scheduler = checkpoint["lr_scheduler"]
 
-        
+# Putting the evaluation code here is obviously debatable, but its the easiest way without changing the import for any other script; every import we need is given here      
 def evaluate_ext_model(model: nn.Module, embedding: nn.Module, verdicts: List[str], max_sents: int=3, equal_length: bool=True) -> List[Dict[str, float]]:
     """ Will evaluate a model on all the verdicts given. Some additional parameters are possible to reduce the length 
         Parameters:
@@ -597,7 +606,7 @@ def evaluate_abs_model(model: nn.Module, embedding: nn.Module, verdicts: List[st
         while True:
             # Init start vector
             prev_tensor = torch.tensor(words, dtype=torch.long).cuda()[None,:]
-
+            
             pred = model(prev_tensor, facts, facts_mask, reason, reason_mask)
             
             # Get max index; if max_index == max possible index -> end of sentence -> increase sent count
@@ -610,8 +619,6 @@ def evaluate_abs_model(model: nn.Module, embedding: nn.Module, verdicts: List[st
                 sent_count += 1
                 words.append(MAX_INDEX)
                 probs.append(prob)
-                words.append(0)
-                probs.append(1.0)
             else:
                 tok_count += 1
                 words.append(index)
@@ -622,7 +629,8 @@ def evaluate_abs_model(model: nn.Module, embedding: nn.Module, verdicts: List[st
             elif tok_count >= MAX_NUM_TOKENS:
                 break
         
-        # Convert the words back to text    
+        print(words)
+        # Convert the words back to text  
         selected_sentences = list(map(lambda token: tok.id2tok[token], filter(lambda token: token not in [0,MAX_INDEX], words)))
 
         labels = []
