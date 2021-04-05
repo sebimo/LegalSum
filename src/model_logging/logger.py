@@ -158,6 +158,8 @@ class Logger:
         self.add_parameter("target", Type.TEXT)
         self.add_perf_metric("train_loss", Type.FLOAT)
         self.add_perf_metric("val_loss", Type.FLOAT)
+        self.add_perf_metric("train_probability", Type.FLOAT)
+        self.add_perf_metric("val_probability", Type.FLOAT)
         self.add_perf_metric("train_rouge-1", Type.FLOAT)
         self.add_perf_metric("train_rouge-2", Type.FLOAT)
         self.add_perf_metric("train_rouge-l", Type.FLOAT)
