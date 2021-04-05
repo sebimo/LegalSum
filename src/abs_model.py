@@ -742,6 +742,9 @@ def reload_abs_model(parameters: Dict) -> nn.Module:
     if dec_param == "LIN":
         decoder = Decoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
                           output_size=len(embedding.get_word_mapping()["tok2id"]))
+    elif dec_param == "ADEC":
+        decoder = AttentionDecoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
+                                   output_size=len(embedding.get_word_mapping()["tok2id"]))
     else:
         raise ValueError("'"+dec_param+"' is not a valid decoder!")
     
