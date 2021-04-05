@@ -591,7 +591,7 @@ def evaluate_abs_model(model: nn.Module, embedding: nn.Module, verdicts: List[st
     MAX_NUM_TOKENS = max_toks
     MAX_INDEX = tok.get_num_tokens()-1
     scores = []
-    for verdict in tqdm(verdicts[:100]):
+    for verdict in tqdm(verdicts):
         gp_sents, facts, facts_mask, reason, reason_mask = load_seperated_verdict(verdict, tok) 
         facts = facts.cuda()
         reason = reason.cuda()
@@ -629,7 +629,82 @@ def evaluate_abs_model(model: nn.Module, embedding: nn.Module, verdicts: List[st
             elif tok_count >= MAX_NUM_TOKENS:
                 break
         
-        print(words)
+        # Convert the words back to text  
+        selected_sentences = list(map(lambda token: tok.id2tok[token], filter(lambda token: token not in [0,MAX_INDEX], words)))
+
+        labels = []
+        for sent in gp_sents:
+            labels += sent
+
+        if len(selected_sentences) == 0:
+            selected_sentences = ["<unk>"]
+        score = evaluate([labels], [selected_sentences])[0]
+        scores.append(score)
+    
+    return scores
+
+def evaluate_abs_model_beam(model: nn.Module, embedding: nn.Module, verdicts: List[str], max_sents: int=3, max_toks: int=150, beam_size: int=5) -> List[Dict[str, float]]:
+    """ Will evaluate a model on all the verdicts given. Some additional parameters are possible to reduce the length 
+        Parameters:
+            model -- the given NN used for the predictions
+            embedding -- the embeddings used for the token <-> id mapping
+            verdicts -- the paths to the verdicts which shall be evaluated
+            max_sents -- maximum number of sentences per created summarization
+            max_toks -- maximum number of tokens to generate; stop if either max_sents or max_toks is met
+    """
+    # Create tokenizer
+    tok = Tokenizer(Path("model"), normalize=True, mapping=embedding.get_word_mapping())
+    model = model.cuda()
+    # We will take the 
+    MAX_NUM_SENTS = max_sents
+    MAX_NUM_TOKENS = max_toks
+    MAX_INDEX = tok.get_num_tokens()-1
+    scores = []
+    for verdict in tqdm(verdicts):
+        gp_sents, facts, facts_mask, reason, reason_mask = load_seperated_verdict(verdict, tok) 
+        facts = facts.cuda()
+        reason = reason.cuda()
+        facts_mask = facts_mask.cuda()
+        reason_mask = reason_mask.cuda()
+
+        # Each tuple in beam corresponds to one search history with (probability, sentence_count, words) as content
+        beams = [(1.0, 0, [0])]
+        words = []
+        while True:
+            new_directions = []
+            for prob, sent_count, words in beams:
+                # Init start vector
+                prev_tensor = torch.tensor(words, dtype=torch.long).cuda()[None,:]
+                
+                pred = model(prev_tensor, facts, facts_mask, reason, reason_mask)
+                
+                probs, indices = torch.topk(pred, beam_size)
+                indices = indices.cpu()
+                probs = probs.cpu()
+                for p, i in zip(probs, indices):
+                    if i == MAX_INDEX:
+                        new_directions.append((prob*p, sent_count+1, words+[i]))
+                    else:
+                        new_directions.append((prob*p, sent_count, words+[i]))
+            
+            # We now want the top-beam_size summaries as new beams
+            new_directions = sorted(new_directions, key=lambda x: x[0], reverse=True)
+            beams = new_directions[:beam_size]
+
+            # Check if we have any finished summary, then take this summary:
+            for beam in beams:
+                if beam[1] >= MAX_NUM_SENTS:
+                    words = beam[2]
+                    break
+                elif len(beam[2]) >= MAX_NUM_TOKENS:
+                    words = beam[2]
+                    break
+
+            if len(words) > 0:
+                break
+        
+        assert len(words) > 0
+        
         # Convert the words back to text  
         selected_sentences = list(map(lambda token: tok.id2tok[token], filter(lambda token: token not in [0,MAX_INDEX], words)))
 
