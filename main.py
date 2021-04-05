@@ -30,7 +30,7 @@ def start_extractive():
     embedding_size = 100
     cross_sentence_size = [100, 100]
     attention = "NONE"
-
+    embedding = GloVe(embedding_size=embedding_size)
     num_epochs = 20
 
     # ATTENTION: We can include here a different mapping between tokens and ids, if we for example use word2vec
@@ -47,52 +47,6 @@ def start_extractive():
         database = "extractive.db"
         trainset = ExtractiveDataset(get_train_files(), tok, loss_type, database=database)
         valset = ExtractiveDataset(get_val_files(), tok, loss_type, database=database)
-
-        for _ in range(2):
-            embedding = GloVe(embedding_size=embedding_size)
-            model = RNNEncoder(
-                        embedding_layer=embedding,
-                        embedding_size=embedding_size
-                    )
-            lr = random_log_lr()
-
-            logger_params = {
-                "model": model.get_name(),
-                "lr": lr,
-                "abstractive": 0,
-                "embedding": embedding.get_name(), 
-                "attention": attention,
-                "loss_type": loss_mapping[loss_type],
-                "target": "ONE"
-            }
-            logger.start_experiment(logger_params)
-
-            trainer = Trainer(model, trainset, valset, logger, False)
-            trainer.train(loss_type, epochs=num_epochs, lr=lr)
-        
-        for _ in range(1):
-            embedding = GloVe(embedding_size=embedding_size)
-            cross_sentence = CrossSentenceRNN(cross_sentence_size)
-            model = RNNCrossEncoder(
-                        embedding_layer=embedding,
-                        cross_sentence_layer=cross_sentence,
-                        cross_sentence_size=cross_sentence_size
-                    )
-            lr = random_log_lr()
-
-            logger_params = {
-                "model": model.get_name(),
-                "lr": lr,
-                "abstractive": 0,
-                "embedding": embedding.get_name(), 
-                "attention": attention,
-                "loss_type": loss_mapping[loss_type],
-                "target": "ONE"
-            }
-            logger.start_experiment(logger_params)
-
-            trainer = Trainer(model, trainset, valset, logger, False)
-            trainer.train(loss_type, epochs=num_epochs, lr=lr)
 
         for _ in range(2):
             embedding = GloVe(embedding_size=embedding_size)
@@ -168,17 +122,18 @@ def start_abstractive():
     valset = AbstractiveDataset(get_val_files(), tok)
 
     for _ in range(1):
-        decoder = AttentionDecoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
+        embedding = GloVe(embedding_size=embedding_size, abstractive=True)
+        decoder = LDecoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
                                    output_size=tok.get_num_tokens())
-        prev_encoder = RNNPrevEncoder(embedding, embedding_size=embedding_size)
+        prev_encoder = LRNNPrevEncoder(embedding, embedding_size=embedding_size)
         cross_sentence = AbsCrossSentenceRNN(cross_sentence_size=cross_sentence_size)
-        body_encoder = AbsHierarchicalCrossEncoder(embedding, 
+        body_encoder = GuidedHierarchicalCrossEncoder(embedding, 
                                                       cross_sentence, 
                                                       embedding_size=embedding_size,
                                                       cross_sentence_size=cross_sentence_size,
                                                       attention=attention)
         
-        model = AbstractiveModel(
+        model = GuidedAbstractiveModel(
             body_encoder,
             prev_encoder,
             decoder,
