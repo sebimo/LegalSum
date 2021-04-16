@@ -2,6 +2,7 @@ import os
 import io
 from pathlib import Path
 import pickle
+from typing import List
 
 from tqdm import tqdm
 import torch.nn as nn
@@ -103,6 +104,51 @@ class GloVe(nn.Module):
 
     def get_name(self):
         return "glove"
+
+class GloVeComb(nn.Module):
+
+    def __init__(self,
+                 n_tokens: int=-1,
+                 embedding_sizes: List[int]=[100,100],
+                 embedding_path: Path=Path("embedding")/"glove"/"glove.pkl",
+                 abstractive=False):
+        super(GloVeComb, self).__init__()
+        with open(embedding_path, "rb") as f:
+            d = pickle.load(f)
+        self.id2tok = d["id2tok"]
+        self.tok2id = d["tok2id"]
+        self.embedding_sizes = embedding_sizes
+        glove = torch.tensor(d["wv"], dtype=torch.float32)
+        add_emb = torch.zeros([glove.shape[0], self.embedding_sizes[1]], dtype=torch.float32)
+        nn.init.xavier_normal_(add_emb)
+        glove = torch.cat([glove, add_emb], dim=1)
+
+        if abstractive:
+            # ATTENTION: Due to a problem during vocab generation <num> and <unk> are mapped to the same id. I.e. we need to remap <num> to an unused id, as <unk> should be 0 + insert a zero vector
+            # Some extractive models were trained with this wrong mapping; due to time constraints it is not feasible to retrain them right now!  
+            glove = torch.cat([torch.zeros([1,sum(self.embedding_sizes)], dtype=torch.float32), glove])
+            assert glove.shape[0]-1 not in self.id2tok
+            self.id2tok[0] = "<unk>"
+            self.tok2id["<unk>"] = 0
+            self.id2tok[glove.shape[0]-1] = "<num>"
+            self.tok2id["<num>"] = glove.shape[0]-1
+            # End of fixup code
+
+            # We need to add one token ending a sentence
+            glove = torch.cat([glove, torch.zeros([1,sum(self.embedding_sizes)], dtype=torch.float32)])
+            assert glove.shape[0]-1 not in self.id2tok
+            self.id2tok[glove.shape[0]-1] = "<end>"
+            self.tok2id["<end>"] = glove.shape[0]-1
+        self.embedding = nn.Embedding.from_pretrained(glove)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return self.embedding(X)
+
+    def get_word_mapping(self):
+        return {"id2tok": self.id2tok, "tok2id": self.tok2id}
+
+    def get_name(self):
+        return "glovecomb"
 
 def train_word2vec(embedding_path: Path=Path("embedding")/"word2vec"/"100.wv"):
     """ Will automatically create a word2vec model from the verdicts found under data/dataset and save it to embedding_path"""
