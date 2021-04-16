@@ -9,14 +9,15 @@ import numpy as np
 from src.training import Trainer
 from src.model import RNNEncoder, HierarchicalEncoder, CNNEncoder, CNNCrossEncoder, HierarchicalCrossEncoder, CrossSentenceCNN, CrossSentenceRNN, RNNCrossEncoder
 from src.abs_model import AbstractiveModel, Decoder, RNNPrevEncoder, CrossSentenceRNN as AbsCrossSentenceRNN, CNNCrossEncoder as AbsCNNCrossEncoder, CrossSentenceCNN as AbsCrossSentenceCNN, HierarchicalCrossEncoder as AbsHierarchicalCrossEncoder
-from src.abs_model import GuidedAbstractiveModel, GuidedHierarchicalCrossEncoder, LDecoder, AttentionDecoder, LRNNPrevEncoder
+from src.abs_model import GuidedAbstractiveModel, GuidedHierarchicalCrossEncoder, LDecoder, AttentionDecoder, LRNNPrevEncoder, AttentionTemplate, TemplateAbstractiveModel, TemplateDecoder
 from src.embedding import Word2Vec, GloVe
-from src.dataloading import ExtractiveDataset, get_train_files, get_val_files, LossType, transform_cutoff, get_greedy_train_files, get_greedy_val_files
+from src.dataloading import ExtractiveDataset, get_train_files, get_val_files, LossType, transform_cutoff, get_greedy_train_files, get_greedy_val_files, AbstractiveTemplateDataset
 from src.dataloading import AbstractiveDataset
 from src.preprocessing import Tokenizer
 from src.model_logging.logger import Logger as MyLogger
 
 ABSTRACTIVE = True
+TEMPLATE = True
 TOKENIZER_PATH = Path("model")
 LOGGER_ON = True
 EMBEDDINGS = ["training", "word2vec", "glove"]
@@ -123,24 +124,24 @@ def start_abstractive():
 
     for _ in range(1):
         embedding = GloVe(embedding_size=embedding_size, abstractive=True)
-        decoder = LDecoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
+        decoder = Decoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
                                    output_size=tok.get_num_tokens())
-        prev_encoder = LRNNPrevEncoder(embedding, embedding_size=embedding_size)
+        prev_encoder = RNNPrevEncoder(embedding, embedding_size=embedding_size)
         cross_sentence = AbsCrossSentenceRNN(cross_sentence_size=cross_sentence_size)
-        body_encoder = GuidedHierarchicalCrossEncoder(embedding, 
+        body_encoder = AbsHierarchicalCrossEncoder(embedding, 
                                                       cross_sentence, 
                                                       embedding_size=embedding_size,
                                                       cross_sentence_size=cross_sentence_size,
                                                       attention=attention)
         
-        model = GuidedAbstractiveModel(
+        model = AbstractiveModel(
             body_encoder,
             prev_encoder,
             decoder,
             prev_size=[embedding_size]
         )
         # See et al lr
-        lr = 0.005
+        lr = 0.15
 
         logger_params = {
             "model": model.get_name(),
@@ -154,7 +155,67 @@ def start_abstractive():
         logger.start_experiment(logger_params)
 
         trainer = Trainer(model, trainset, valset, logger, True)
-        trainer.train_abs(epochs=num_epochs, lr=lr, train_step_size=100, val_step_size=10, patience=30)
+        trainer.train_abs(epochs=num_epochs, lr=lr, train_step_size=100, val_step_size=10, patience=30, capped_gradients=True)
+
+def start_template_abstractive():
+    logger = MyLogger(database=Path("logging")/"training.db")
+    logger.setup_abstractive()
+
+    logger.set_status(LOGGER_ON)
+
+    embedding_size = 100
+    embedding = GloVe(embedding_size=embedding_size, abstractive=True)
+    cross_sentence_size = [100, 100]
+    attention = "DOT"
+
+    num_epochs = 300
+
+    # ATTENTION: We can include here a different mapping between tokens and ids, if we for example use word2vec
+    tok = Tokenizer(TOKENIZER_PATH, normalize=True, mapping=embedding.get_word_mapping())
+    loss_type = LossType.ABS
+    loss_mapping = {
+        LossType.ABS: "ABS"
+    }
+
+    trainset = AbstractiveTemplateDataset(get_train_files(), tok)
+    valset = AbstractiveTemplateDataset(get_val_files(), tok)
+
+    for _ in range(1):
+        embedding = GloVe(embedding_size=embedding_size, abstractive=True)
+        decoder = TemplateDecoder(input_sizes=[embedding_size]*2+([cross_sentence_size[1]]*2),
+                                   output_size=tok.get_num_tokens())
+        prev_encoder = RNNPrevEncoder(embedding, embedding_size=embedding_size)
+        cross_sentence = AbsCrossSentenceRNN(cross_sentence_size=cross_sentence_size)
+        body_encoder = GuidedHierarchicalCrossEncoder(embedding, 
+                                                      cross_sentence, 
+                                                      embedding_size=embedding_size,
+                                                      cross_sentence_size=cross_sentence_size,
+                                                      attention=attention)
+        temp_encoder = AttentionTemplate(embedding, embedding_size=embedding_size)
+        
+        model = TemplateAbstractiveModel(
+            body_encoder,
+            prev_encoder,
+            decoder,
+            temp_encoder,
+            prev_size=[embedding_size]
+        )
+        # See et al lr
+        lr = 0.0005
+
+        logger_params = {
+            "model": model.get_name(),
+            "lr": lr,
+            "abstractive": 1,
+            "embedding": embedding.get_name(), 
+            "attention": attention,
+            "loss_type": loss_mapping[loss_type],
+            "target": "NONE"
+        }
+        logger.start_experiment(logger_params)
+
+        trainer = Trainer(model, trainset, valset, logger, True)
+        trainer.train_abs(epochs=num_epochs, lr=lr, train_step_size=100, val_step_size=10, patience=100, template=True)
 
 def random_log_lr(lr_range: Tuple[float, float]=(1e-3, 1e-6)) -> float:
     """ Will draw a random learning rate on a logarithmic scale, i.e. drawing the  lr from (1e-5, 1e-4) is as likely as from (1e-2,1e-1) """
@@ -167,6 +228,9 @@ def random_log_lr(lr_range: Tuple[float, float]=(1e-3, 1e-6)) -> float:
 
 if __name__ == "__main__":
     if ABSTRACTIVE:
-        start_abstractive()
+        if TEMPLATE:
+            start_template_abstractive()
+        else:
+            start_abstractive()
     else:
         start_extractive()
