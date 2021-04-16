@@ -144,6 +144,9 @@ class Attention(nn.Module):
         weights = self.attention_softmax__(weights)
         return weights
 
+    def get_name(self):
+        return "ATT"
+
 class GuidedHierarchicalCrossEncoder(nn.Module):
 
     def __init__(self,
@@ -527,6 +530,34 @@ class Decoder(nn.Module):
     def get_name(self):
         return "LIN"
 
+class TemplateDecoder(nn.Module):
+
+    def __init__(self,
+                 input_sizes: List[int]=[100, 100, 100, 100],
+                 output_size: int=50000):
+        super(TemplateDecoder, self).__init__()
+        self.embed_size = sum(input_sizes)
+        self.output_size = output_size
+
+        self.layers = nn.Sequential(
+            nn.Linear(self.embed_size, self.embed_size),
+            nn.ReLU(),
+            nn.Linear(self.embed_size, self.embed_size),
+            nn.ReLU(),
+            nn.Linear(self.embed_size, self.output_size)
+        )
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, facts: torch.Tensor, reasoning: torch.Tensor, previous: torch.Tensor, template: torch.Tensor) -> torch.Tensor:
+        # We might need to use different stacking functions
+        X = torch.hstack([facts, reasoning, previous, template])
+        X = self.layers(X.squeeze(0))
+
+        return self.softmax(X)
+
+    def get_name(self):
+        return "TLIN"
+
 class LDecoder(nn.Module):
 
     def __init__(self,
@@ -634,6 +665,83 @@ class AbstractiveModel(nn.Module):
     def get_name(self):
         return "NORM_ABS_"+self.body_encoder.get_name()+"_PRE_"+self.prev_encoder.get_name()+"_DEC_"+self.decoder.get_name()
 
+class TemplateAbstractiveModel(nn.Module):
+
+    def __init__(self,
+                 body_encoder: nn.Module,
+                 prev_encoder: nn.Module,
+                 decoder: nn.Module,
+                 template_encoder: nn.Module,
+                 prev_size: List[int]=[100]         
+                ):
+        super(TemplateAbstractiveModel, self).__init__()
+        self.body_encoder = body_encoder
+        self.decoder = decoder
+        self.prev_encoder = prev_encoder
+        self.template_encoder = template_encoder
+        self.prev_size = prev_size
+
+    def forward(self, previous, template, facts, facts_mask, reason, reason_mask):
+        # Will only produce one word
+        t_tensor = self.template_encoder(template)
+        p_tensor = self.prev_encoder(previous)
+
+        # Here we give the template embedding instead!!!
+        f_tensor = self.body_encoder(facts, facts_mask, t_tensor, is_facts=True)
+        r_tensor = self.body_encoder(reason, reason_mask, t_tensor, is_facts=False)
+
+        return self.decoder(f_tensor, r_tensor, p_tensor, t_tensor)
+
+    def forward_sentence(self, target, length, facts, facts_mask, reason, reason_mask):
+        # We get one target sentence and want to predict the masked words, i.e. the models can only see the past words
+        pass
+
+    def get_name(self):
+        return "TEMPLATE_ABS_"+self.body_encoder.get_name()+"_PRE_"+self.prev_encoder.get_name()+"_TEMP_"+self.template_encoder.get_name()+"_DEC_"+self.decoder.get_name()
+
+class AttentionTemplate(nn.Module):
+
+    def __init__(self,
+                embedding: nn.Module,
+                embedding_size: int = 100):
+        """ Arguments:
+                - embedding
+                - embedding_size  : size of the incoming token embeddings
+        """
+        super(AttentionTemplate, self).__init__()
+        self.embedding = embedding
+        self.embedding_size = embedding_size
+        self.attention_type = AttentionType.DOT
+        self.attention_sizes = []
+        self.setup_attention()
+        self.attention_softmax__ = nn.Softmax(dim=-1)
+        assert self.attention in [self.dot_attention]
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        X = self.embedding(X)
+        weights = self.attention(X)
+        X = torch.mul(X, weights)
+        # Reduce them by summing of all weighted token embeddings (-2 as we want to keep the last embedding dimension)
+        X = torch.sum(X, dim=-2)
+        return X
+
+    def setup_attention(self):
+        """ Will create all the matrices etc. for the  wanted attention type + sets self.attention to the appropriate function """
+        if self.attention_type == AttentionType.DOT:
+            assert len(self.attention_sizes) == 0
+            self.attention = self.dot_attention
+            self.s = nn.Linear(self.embedding_size, 1, bias=False)
+
+    def dot_attention(self, X: torch.Tensor) -> torch.Tensor:
+        """ e_i = s^T h_i """   
+        weights = self.s(X)
+        # We need to normalize them:
+        weights = self.attention_softmax__(weights)
+        return weights
+
+    def get_name(self):
+        return "ATT"
+
 class GuidedAbstractiveModel(nn.Module):
     # Similar to the model above, but the body encoder will get information about the region + the previous state
 
@@ -731,6 +839,13 @@ def reload_abs_model(parameters: Dict) -> nn.Module:
                                                 embedding_size=embedding_size,
                                                 cross_sentence_size=cross_sentence_size,
                                                 attention=parameters["attention"])
+    elif body_param == "GHIER_RNN":
+        cross_sentence = CrossSentenceRNN(cross_sentence_size=cross_sentence_size)
+        body_encoder = GuidedHierarchicalCrossEncoder(embedding,
+                                                    cross_sentence,
+                                                    embedding_size=embedding_size,
+                                                    cross_sentence_size=cross_sentence_size,
+                                                    attention=parameters["attention"])
     else:
         raise ValueError("'"+body_param+"' is not a valid body encoder!")
 
@@ -745,6 +860,8 @@ def reload_abs_model(parameters: Dict) -> nn.Module:
     elif dec_param == "ADEC":
         decoder = AttentionDecoder(input_sizes=[embedding_size]+([cross_sentence_size[1]]*2),
                                    output_size=len(embedding.get_word_mapping()["tok2id"]))
+    elif dec_param == "TLIN":
+        decoder = TemplateDecoder(input_sizes=[embedding_size]*4,output_size=len(embedding.get_word_mapping()["tok2id"]))
     else:
         raise ValueError("'"+dec_param+"' is not a valid decoder!")
     
@@ -753,6 +870,22 @@ def reload_abs_model(parameters: Dict) -> nn.Module:
             body_encoder,
             prev_encoder,
             decoder,
+            prev_size=[embedding_size]
+        )
+    elif abs_param == "GUIDED":
+        model = GuidedAbstractiveModel(
+            body_encoder,
+            prev_encoder,
+            decoder,
+            prev_size=[embedding_size]
+        )
+    elif abs_param == "TEMPLATE":
+        temp_encoder = AttentionTemplate(embedding, embedding_size=embedding_size)
+        model = TemplateAbstractiveModel(
+            body_encoder,
+            prev_encoder,
+            decoder,
+            temp_encoder,
             prev_size=[embedding_size]
         )
     else:
