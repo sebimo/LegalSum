@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.optim import SparseAdam, Adam, SGD, Adagrad
 from torch.optim.lr_scheduler import MultiplicativeLR
 
-from .dataloading import ExtractiveDataset, collate, collate_abs, collate_abs_long, LossType
+from .dataloading import ExtractiveDataset, collate, collate_abs, collate_abs_long, collate_abs_template, LossType, get_abs_target_indices
 from .preprocessing import Tokenizer
 from .evaluation import merge, merge_epoch, finalize_statistic, calculate_confusion_matrix, evaluate
 from .model import save_model
@@ -157,7 +157,9 @@ class Trainer:
               cuda: bool= True,
               workers: int=1,
               train_step_size: int=1000,
-              val_step_size: int=100):
+              val_step_size: int=100,
+              capped_gradients: bool=False,
+              template: bool=False):
         """ Starts the training iteration for the given model and dataset
             Params:
                 epochs = number of iterations through the whole dataset
@@ -170,7 +172,16 @@ class Trainer:
                 eval_step_size = how many verdicts to evaluate
         """
         assert self.abstractive
-        col = collate_abs_long
+        if template:
+            col = collate_abs_template
+        else:
+            col = collate_abs_long
+
+        self.capped_gradients = capped_gradients
+        if template:
+            batch_func = self.__process_abstr_template_batch__
+        else:
+            batch_func = self.__process_abstr_batch__
 
         #self.dataloader = DataLoader(self.trainset, shuffle=True, num_workers=workers, pin_memory=True, collate_fn=col, prefetch_factor=4)
         self.dataloader = DataLoader(self.trainset, shuffle=True, pin_memory=True, collate_fn=col, batch_size=10)
@@ -202,7 +213,7 @@ class Trainer:
                 # Iterate over the trainset
                 epoch_stats = {}
                 for i, data in tqdm(enumerate(self.__train_iter__()), desc="TrainSteps", total=train_step_size):
-                    stats = self.__process_abstr_batch__(data)
+                    stats = batch_func(data)
                     # The loss or other important metrics are saved to the 
                     epoch_stats = merge_epoch(epoch_stats, stats)
                     if i >= train_step_size:
@@ -218,7 +229,7 @@ class Trainer:
                 # Iterate over the valset
                 val_epoch_stats = {}
                 for i, data in tqdm(enumerate(self.__val_iter__()), desc="ValSteps", total=val_step_size):
-                    stats = self.__process_abstr_batch__(data)
+                    stats = batch_func(data)
                     # The loss or other important metrics are saved to the 
                     val_epoch_stats = merge_epoch(val_epoch_stats, stats)
                     if i >= val_step_size:
@@ -316,7 +327,7 @@ class Trainer:
                     tar_ind = t[:,i]
                     #max_ind = torch.argmax(pred)
                     # Accumulate loss over multiple batches/documents
-                    loss = (-torch.log(pred[tar_ind]+1e-12))/l[0]
+                    loss = (-torch.log(pred[tar_ind]+1e-12))
                     #print(tar_ind, pred[tar_ind], "MAX:", max_ind, pred[max_ind], t[:, :i])
                     if self.train_mode:
                         # backpropagation; split up backprop and optim step, as we otherwise need to keep a gradient model for each word until step
@@ -336,7 +347,62 @@ class Trainer:
 
         if self.train_mode:
             # We might want to do some gradient clipping
-            #nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+            if self.capped_gradients:
+                nn.utils.clip_grad_norm_(self.model.parameters(), 2.0)
+            self.optim.step()
+
+        return batch_stats
+
+    def __process_abstr_template_batch__(self, data):
+        batch_stats = {}
+        # Each entry in data is one document containing an abitrary number of sentences
+        self.optim.zero_grad()
+        for batch in data:
+            tar, leng, template, facts, facts_mask, reason, reason_mask = batch
+            # target, lengths, facts, fact mask, reasoning, reasoning_mask, norms
+            
+            # run model
+            if self.cuda:
+                tar = tar.cuda()
+                template = template.cuda()
+                facts = facts.cuda()
+                facts_mask = facts_mask.cuda()
+                reason = reason.cuda()
+                reason_mask = reason_mask.cuda()
+
+            # Sentence for sentence generation
+            gpu_acc_loss = torch.zeros([1]).cuda()
+            gpu_acc_prob = torch.zeros([1]).cuda()
+            num_words = 0
+            for t, l, temp in self.__abs_template_minibatch__(tar, leng, template):
+                num_words += l[0].item()-1
+                # In this training case, we will produce the output word for word, i.e. we need to mask all words up to the current one
+                # We start at index one as the first word is an <unk> token
+                for i in range(1, l[0].item()):
+                    pred = self.model(t[:,:i], temp, facts, facts_mask, reason, reason_mask)
+                    tar_ind = t[:,i]
+                    # Accumulate loss over multiple batches/documents
+                    loss = (-torch.log(pred[tar_ind]+1e-12))
+                    if self.train_mode:
+                        # backpropagation; split up backprop and optim step, as we otherwise need to keep a gradient model for each word until step
+                        loss.backward()
+                    gpu_acc_loss += loss.item()
+                    gpu_acc_prob += pred[tar_ind].item()
+
+            
+            # Identify which statistics are pushed to the epoch method
+            # evaluate batch
+            result = {
+                "loss": gpu_acc_loss.cpu().item(),
+                "probability": gpu_acc_prob.cpu().item()/num_words * 100
+            }
+
+            batch_stats = merge(batch_stats, result)
+
+        if self.train_mode:
+            # We might want to do some gradient clipping
+            if self.capped_gradients:
+                nn.utils.clip_grad_norm_(self.model.parameters(), 2.0)
             self.optim.step()
 
         return batch_stats
@@ -449,6 +515,10 @@ class Trainer:
         for t, l in zip(torch.split(target, 1), torch.split(length, 1)):
             yield t, l
 
+    def __abs_template_minibatch__(self, target: torch.Tensor, length: torch.Tensor, template: torch.Tensor):
+        for y, l, t in zip(torch.split(target, 1), torch.split(length, 1), torch.split(template, 1)):
+            yield y, l, t
+
     def __save_model__(self):
         model_file = Path("model")/(self.logger.experiment + ".model")
         save_model(self.model, model_file)
@@ -468,7 +538,7 @@ class Trainer:
         if checkpoint_path.is_file():
             print("Resume training!")
             checkpoint = torch.load(checkpoint_path)
-            self.start_epoch = checkpoint["epoch"]
+            #self.start_epoch = checkpoint["epoch"]
             self.model.load_state_dict(checkpoint["model"])
             self.optim.load_state_dict(checkpoint["optim"])
             self.lr_scheduler = checkpoint["lr_scheduler"]
@@ -514,8 +584,11 @@ def evaluate_ext_model(model: nn.Module, embedding: nn.Module, verdicts: List[st
 
         if len(selected_sentences) == 0:
             selected_sentences = ["<unk>"]
-        score = evaluate([labels], [selected_sentences])[0]
-        scores.append(score)
+        try:
+            score = evaluate([labels], [selected_sentences])[0]
+            scores.append(score)
+        except RecursionError:
+            print("This model has recursion problems.")
     
     return scores
 
@@ -669,21 +742,24 @@ def evaluate_abs_model_beam(model: nn.Module, embedding: nn.Module, verdicts: Li
 
         # Each tuple in beam corresponds to one search history with (probability, sentence_count, words) as content
         beams = [(1.0, 0, [0])]
-        words = []
+        final_words = []
         while True:
             new_directions = []
             for prob, sent_count, words in beams:
                 # Init start vector
-                prev_tensor = torch.tensor(words, dtype=torch.long).cuda()[None,:]
+                prev_tensor = torch.tensor(words, dtype=torch.long).cuda().unsqueeze(0)
                 
                 pred = model(prev_tensor, facts, facts_mask, reason, reason_mask)
                 
-                probs, indices = torch.topk(pred, beam_size)
+                # We do not want to produce an unknown word
+                probs, indices = torch.topk(pred[1:], beam_size)
                 indices = indices.cpu()
                 probs = probs.cpu()
                 for p, i in zip(probs, indices):
+                    p = p.item()
+                    i = i.item() + 1
                     if i == MAX_INDEX:
-                        new_directions.append((prob*p, sent_count+1, words+[i]))
+                        new_directions.append((prob*p, sent_count+1, words+[i, 0]))
                     else:
                         new_directions.append((prob*p, sent_count, words+[i]))
             
@@ -694,19 +770,102 @@ def evaluate_abs_model_beam(model: nn.Module, embedding: nn.Module, verdicts: Li
             # Check if we have any finished summary, then take this summary:
             for beam in beams:
                 if beam[1] >= MAX_NUM_SENTS:
-                    words = beam[2]
+                    final_words = beam[2]
                     break
                 elif len(beam[2]) >= MAX_NUM_TOKENS:
-                    words = beam[2]
+                    final_words = beam[2]
                     break
 
-            if len(words) > 0:
+            if len(final_words) > 0:
                 break
         
-        assert len(words) > 0
+        assert len(final_words) > 0
         
         # Convert the words back to text  
-        selected_sentences = list(map(lambda token: tok.id2tok[token], filter(lambda token: token not in [0,MAX_INDEX], words)))
+        selected_sentences = list(map(lambda token: tok.id2tok[token], filter(lambda token: token not in [0,MAX_INDEX], final_words)))
+
+        labels = []
+        for sent in gp_sents:
+            labels += sent
+
+        if len(selected_sentences) == 0:
+            selected_sentences = ["<unk>"]
+        score = evaluate([labels], [selected_sentences])[0]
+        scores.append(score)
+    
+    return scores
+
+def evaluate_template_model_beam(model: nn.Module, embedding: nn.Module, verdicts: List[str], max_toks: int=150, beam_size: int=5) -> List[Dict[str, float]]:
+    """ Will evaluate a model on all the verdicts given. Some additional parameters are possible to reduce the length 
+        Parameters:
+            model -- the given NN used for the predictions
+            embedding -- the embeddings used for the token <-> id mapping
+            verdicts -- the paths to the verdicts which shall be evaluated
+            max_sents -- maximum number of sentences per created summarization
+            max_toks -- maximum number of tokens to generate; stop if either max_sents or max_toks is met
+    """
+    # Create tokenizer
+    tok = Tokenizer(Path("model"), normalize=True, mapping=embedding.get_word_mapping())
+    model = model.cuda()
+    # We will take the 
+    MAX_NUM_TOKENS = max_toks
+    MAX_INDEX = tok.get_num_tokens()-1
+    scores = []
+    for verdict in tqdm(verdicts):
+        gp_sents, facts, facts_mask, reason, reason_mask, templates = load_template_verdict(verdict, tok) 
+        facts = facts.cuda()
+        reason = reason.cuda()
+        facts_mask = facts_mask.cuda()
+        reason_mask = reason_mask.cuda()
+
+        combined_words = []
+        for template in templates:
+            template = template.cuda()[None,:]
+            # Each tuple in beam corresponds to one search history with (probability, sentence_count, words) as content
+            beams = [(1.0, 0, [0])]
+            final_words = []
+            while True:
+                new_directions = []
+                for prob, sent_count, words in beams:
+                    # Init start vector
+                    prev_tensor = torch.tensor(words, dtype=torch.long).cuda().unsqueeze(0)
+                    
+                    pred = model(prev_tensor, template, facts, facts_mask, reason, reason_mask)
+                    
+                    # We do not want to produce an unknown word
+                    probs, indices = torch.topk(pred[1:], beam_size)
+                    indices = indices.cpu()
+                    probs = probs.cpu()
+                    for p, i in zip(probs, indices):
+                        p = p.item()
+                        i = i.item() + 1
+                        if i == MAX_INDEX:
+                            new_directions.append((prob*p, sent_count+1, words+[i, 0]))
+                        else:
+                            new_directions.append((prob*p, sent_count, words+[i]))
+                
+                # We now want the top-beam_size summaries as new beams
+                new_directions = sorted(new_directions, key=lambda x: x[0], reverse=True)
+                beams = new_directions[:beam_size]
+
+                # Check if we have any finished summary, then take this summary:
+                for beam in beams:
+                    if beam[1] >= 1:
+                        final_words = beam[2]
+                        break
+                    elif len(beam[2]) >= MAX_NUM_TOKENS:
+                        final_words = beam[2]
+                        break
+
+                if len(final_words) > 0:
+                    break
+
+            combined_words += final_words
+        
+        assert len(combined_words) > 0
+        
+        # Convert the words back to text  
+        selected_sentences = list(map(lambda token: tok.id2tok[token], filter(lambda token: token not in [0,MAX_INDEX], combined_words)))
 
         labels = []
         for sent in gp_sents:
@@ -756,5 +915,54 @@ def load_seperated_verdict(path: Path, tok: Tokenizer):
     r_mask = (r!=0)
     return verdict["guiding_principle"], f, f_mask, r, r_mask
 
+def load_template_verdict(path: Path, tok: Tokenizer):
+    db_path = Path("data")/"databases"/"extractive.db"
+    verdict = tok.tokenize_verdict_without_id(path)
+    x_1 = list(map(lambda sentence: list(map(lambda token: tok.tok2id[token], sentence)), verdict["facts"]))
+    x_2 = list(map(lambda sentence: list(map(lambda token: tok.tok2id[token], sentence)), verdict["reasoning"]))
+    
+    f = []
+    for ind in x_1:
+        f.append(torch.LongTensor(ind))
+    while len(f) < 1:
+        f.append(torch.LongTensor([0]))
+    r = []
+    for ind in x_2:
+        r.append(torch.LongTensor(ind))
+    while len(r) < 1:
+        r.append(torch.LongTensor([0]))
+
+    f = torch.nn.utils.rnn.pad_sequence(f, batch_first=True)
+    r = torch.nn.utils.rnn.pad_sequence(r, batch_first=True)
+    f_mask = (f!=0)
+    r_mask = (r!=0)
+
+    indices = get_abs_target_indices(path, db_path, tok)
+    ind_map = {}
+    for gid, sec, index in indices:
+        ind_map[gid] = (sec, index)
+    t = []
+    for i,_ in enumerate(verdict["guiding_principle"]):
+        if i in ind_map:
+            sec, index = ind_map[i]
+            try:
+                if sec == 0:
+                    t.append(torch.LongTensor(x_1[index][:40]))
+                else:
+                    t.append(torch.LongTensor(x_2[index][:40]))
+            except IndexError:
+                print("Index error with gp:", str(i), " in verdict:", str(path))
+                t.append(torch.LongTensor([0]))
+        else:
+            # Unknown best sentence
+            t.append(torch.LongTensor([0]))
+    
+    return verdict["guiding_principle"], f, f_mask, r, r_mask, t
+
 def _mult_lr_factor_(it: int) -> float:
-    return 0.98
+    if 0 <= it <= 80:
+        return 1.0
+    elif 80 < it <= 100:
+        return 0.95
+    else:
+        return 1.0

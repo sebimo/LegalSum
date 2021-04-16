@@ -130,10 +130,86 @@ class AbstractiveDataset(Dataset):
         for ind in verdict["guiding_principle"]:
             # Startoff sentence with <unk> (we need to create zero vector any way for model as giving the prev encoder no vector would increase the complexity more)
             # Append ending token (token with highest id) to stop generating
-            y.append(torch.LongTensor([0]+ind[:50]+[self.ENDING_TOKEN]))
+            # We also want to filter 0s as we do not want to generate unknown tokens
+            y.append(torch.LongTensor([0]+list(filter(lambda x: x != 0, ind[:50]))+[self.ENDING_TOKEN]))
 
         # We will also reduce the number of sentence verdict to the average + 5
         return f[:30], r[:70], y
+
+    def __len__(self):
+        return len(self.verdicts)
+
+    def __lam__(self, ind: List[int]) -> torch.LongTensor:
+        # Define this lambda function as we otherwise cannot use multiple workers for dataloading
+        if self.transform is not None:
+            return torch.LongTensor(self.transform(ind))
+        else:
+            return torch.LongTensor(ind)
+
+class AbstractiveTemplateDataset(Dataset):
+    """ Dataset used for the abstractive summarization training """
+
+    def __init__(self, verdict_paths: List[Path], tokenizer: Tokenizer, transform: Callable[[List[int]],List[int]]=None, load_norms: bool=False, database: str="extractive.db"):
+        self.verdicts = verdict_paths
+        self.tokenizer = tokenizer
+        self.load_norms = load_norms
+        self.db_path = Path("data")/"databases"/database
+        # We need to know when to stop generating -> this is always dependend on the tokenizer, i.e. the lowest number not taken is our ending token
+        self.ENDING_TOKEN = self.tokenizer.get_num_tokens()-1
+
+        # It is possible to use the transform function to cap the number of indices per sentence etc.
+        self.transform = transform
+
+    def __getitem__(self, index: int):
+        verdict_path = self.verdicts[index]
+        verdict = self.tokenizer.tokenize_verdict(verdict_path)
+        
+        # Define collate function that can deal with variable list lengths
+        # Only very few sentences are above 40 tokens, we want to cut them here to decrease the variable memory needed in the GPU
+        f = []
+        for ind in verdict["facts"]:
+            f.append(self.__lam__(ind[:40]))
+        if len(f) == 0:
+            f.append(self.__lam__([0]))
+
+        r = []
+        for ind in verdict["reasoning"]:
+            r.append(self.__lam__(ind[:40]))
+        if len(r) == 0:
+            r.append(self.__lam__([0]))
+        
+        y = []
+        for ind in verdict["guiding_principle"]:
+            # Startoff sentence with <unk> (we need to create zero vector any way for model as giving the prev encoder no vector would increase the complexity more)
+            # Append ending token (token with highest id) to stop generating
+            # We also want to filter 0s as we do not want to generate unknown tokens
+            y.append(torch.LongTensor([0]+list(filter(lambda x: x != 0, ind[:50]))+[self.ENDING_TOKEN]))
+
+        # Get info from database
+        indices = get_abs_target_indices(verdict_path, self.db_path, self.tokenizer)
+        ind_map = {}
+        for gid, sec, index in indices:
+            ind_map[gid] = (sec, index)
+        
+        t = []
+        for i,_ in enumerate(verdict["guiding_principle"]):
+            if i in ind_map:
+                sec, index = ind_map[i]
+                try:
+                    if sec == 0:
+                        t.append(self.__lam__(verdict["facts"][index][:40]))
+                    else:
+                        t.append(self.__lam__(verdict["reasoning"][index][:40]))
+                except IndexError:
+                    print("Index error with gp:", str(i), " in verdict:", str(verdict_path))
+                    t.append(torch.LongTensor([0]))
+            else:
+                # Unknown best sentence
+                t.append(torch.LongTensor([0]))
+
+
+        # We will also reduce the number of sentence verdict to the average + 5
+        return f[:30], r[:70], y, t
 
     def __len__(self):
         return len(self.verdicts)
@@ -226,6 +302,36 @@ def collate_abs_long(batch: List[Tuple[List[torch.Tensor], List[torch.Tensor], L
         r = torch.nn.utils.rnn.pad_sequence(doc[1], batch_first=True)
         r_m = (r!=0)
         res.append([t, l, f, f_m, r, r_m])
+    
+    return res
+
+def collate_abs_template(batch: List[Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]]) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """ Will transform the given sentence list (each entry in the first list represents a document; sentences from: facts, reasoning, guiding_principle, norms), each to 
+        one sentence tensor with all sentences being padded to the same length.
+        In this collate function each sentence will be appended to the last, with one one end token in between. I.e. this allows us to train the sentence creation continously.
+        Returns:
+            List[Tuple[
+                targets: indices for target words, each row is one sentence,
+                length of target sentence,
+                facts: indices of facts,
+                facts_mask: mask introduced by padding,
+                reasoning: indices of reasoning,
+                reasoning_mask: mask introduced by padding,
+                norms: indices for norm
+            ]]
+    """
+    res = []
+    for doc in batch:
+        y = torch.nn.utils.rnn.pad_sequence(doc[2], batch_first=True)
+        l = torch.tensor([sent.shape[0] for sent in doc[2]])
+
+        temp = torch.nn.utils.rnn.pad_sequence(doc[3], batch_first=True)
+
+        f = torch.nn.utils.rnn.pad_sequence(doc[0], batch_first=True)
+        f_m = (f!=0)
+        r = torch.nn.utils.rnn.pad_sequence(doc[1], batch_first=True)
+        r_m = (r!=0)
+        res.append([y, l, temp, f, f_m, r, r_m])
     
     return res
 
@@ -348,6 +454,21 @@ def get_ext_target_indices(verdict: Path, db_path: Path, tok: Tokenizer, create_
 
     conn.close()
     return (facts, reasoning)
+
+def get_abs_target_indices(verdict: Path, db_path: Path, tok: Tokenizer, create_missing_db: bool=False) -> List[Tuple]:
+    """ Returns the indices for the one-to-one selection in the order of the guiding principles. I.e. each gp we want to generate gets one entry in the list.
+    """
+    file_name = verdict.name
+    # We will use sqlite, as it is pretty easy to integrate + port to other machines
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    tok_type = 1 if tok.get_type() == TokenizationType.SPACE else 2
+    
+    cursor.execute("select gid, section, ind from labels where name=:file and tokenizer=:tok ;", {"file": file_name, "tok": tok_type})
+    res = cursor.fetchall()
+
+    conn.close()
+    return res
 
 def create_ext_target_db(db_path: Path, tok: Tokenizer, data_folder: Path=DATA_PATH):
     """ Creates the database used for querying the gold labels for the extractive summarization task. Based on a one-to-one mapping for the guiding principles sentences to verdict sentence. """
