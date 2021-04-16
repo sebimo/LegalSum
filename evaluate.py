@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from src.dataloading import get_val_files, get_test_files
-from src.training import evaluate_ext_model, evaluate_lead, evaluate_random, evaluate_abs_model
+from src.training import evaluate_ext_model, evaluate_lead, evaluate_random, evaluate_abs_model, evaluate_abs_model_beam, evaluate_template_model_beam
 from src.model import parse_run_parameters, reload_model
 from src.abs_model import parse_abs_run_parameters, reload_abs_model
 
@@ -50,13 +50,20 @@ def evaluate_randoms(verdicts: List[str]):
         json.dump(acc_score, f, sort_keys=False, indent=4, ensure_ascii=False)
 
 def evaluate_ext_models():
-    file = "logging/ext_test_perf.json"
+    file = "logging/ext_test_final_perf.json"
     try:
         with io.open(file, "r", encoding="utf-8") as f:
             data = json.load(f)
     except: 
         data = []
-    for folder in os.listdir(Path("logging/runs/extractive"))[len(data):]:
+    file_set = set()
+    for x in data:
+        for k in x:
+            file_set.add(k)
+    #for folder in os.listdir(Path("logging/runs/extractive")):
+    for folder in ["21_03_2021__052013_model_HIER_lr_0.004780360096094034_abstractive_0_embedding_glove_attention_DOT_loss_type_BCE_target_ONE", "21_03_2021__071758_model_CNN_lr_0.0006914126259474318_abstractive_0_embedding_glove_attention_DOT_loss_type_BCE_target_ONE", "01_04_2021__161403_model_RNN_lr_0.00012153982361919725_abstractive_0_embedding_glove_attention_NONE_loss_type_BCE_target_ONE", "23_03_2021__170034_model_HIER_CNN_lr_0.005877329339332577_abstractive_0_embedding_glove_attention_DOT_loss_type_BCE_target_ONE", "23_03_2021__130758_model_HIER_RNN_lr_0.00022496321243825225_abstractive_0_embedding_glove_attention_DOT_loss_type_BCE_target_ONE", "23_03_2021__112800_model_CNN_CNN_lr_8.982024088259283e-05_abstractive_0_embedding_glove_attention_DOT_loss_type_BCE_target_ONE", "23_03_2021__043421_model_CNN_RNN_lr_1.7051404676904372e-05_abstractive_0_embedding_glove_attention_DOT_loss_type_BCE_target_ONE", "02_04_2021__142825_model_RNN_CNN_lr_0.0007555632457530207_abstractive_0_embedding_glove_attention_NONE_loss_type_BCE_target_ONE", "26_03_2021__161617_model_RNN_RNN_lr_1.5744493612097835e-05_abstractive_0_embedding_glove_attention_DOT_loss_type_BCE_target_ONE"]:
+        if folder in file_set:
+            continue
         print(folder)
         params = parse_run_parameters(folder)
         model, embedding = reload_model(params)
@@ -67,7 +74,7 @@ def evaluate_ext_models():
         with io.open(file, "w+", encoding="utf-8") as f:
             json.dump(data, f, sort_keys=False, indent=4, ensure_ascii=False)
 
-def evaluate_abs_models(test: bool=False):
+def evaluate_abs_models(test: bool=True):
     if test:
         file = "logging/abs_test_perf.json"
         file_function = get_test_files
@@ -80,16 +87,42 @@ def evaluate_abs_models(test: bool=False):
             data = json.load(f)
     except: 
         data = []
-    for folder in os.listdir(Path("logging/runs/abstractive"))[len(data):]:
+    for folder in ["14_04_2021__085315_model_GUIDED_ABS_GHIER_RNN_PRE_RNN_DEC_LIN_lr_0.0005_abstractive_1_embedding_glove_attention_DOT_loss_type_ABS_target_NONE"]:
         print(folder)
         params = parse_abs_run_parameters(folder)
         model, embedding = reload_abs_model(params)
-        scores = evaluate_abs_model(model, embedding, file_function())
+        scores = evaluate_abs_model_beam(model, embedding, file_function())
         avg_scores = average(scores)
         print(avg_scores)
         data.append({folder: avg_scores})
         with io.open(file, "w+", encoding="utf-8") as f:
             json.dump(data, f, sort_keys=False, indent=4, ensure_ascii=False)
+
+def evaluate_template_models(test: bool=True):
+    if test:
+        file = "logging/abs_test_template_perf.json"
+        file_function = get_test_files
+    else:
+        file = "logging/abs_template_perf.json"
+        file_function = get_val_files
+
+    try:
+        with io.open(file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except:
+        data = []
+
+    for folder in ["14_04_2021__084919_model_TEMPLATE_ABS_GHIER_RNN_PRE_RNN_DEC_TLIN_lr_0.0005_abstractive_1_embedding_glove_attention_DOT_loss_type_ABS_target_NONE"]:
+        print(folder)
+        params = parse_abs_run_parameters(folder)
+        model, embedding = reload_abs_model(params)
+        scores = evaluate_template_model_beam(model, embedding, file_function())
+        avg_scores = average(scores)
+        print(avg_scores)
+        data.append({folder: avg_scores})
+        with io.open(file, "w+", encoding="utf-8") as f:
+            json.dump(data, f, sort_keys=False, indent=4, ensure_ascii=False)
+
 
 if __name__ == "__main__":
     #evaluate_ext_models()
