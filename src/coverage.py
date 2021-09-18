@@ -1,3 +1,4 @@
+# NOT USED IN THE PAPER!
 # Functionality to find the optimal golden labels for extractive summarization, if we are allowed to take as many sentences as we want
 from functools import reduce
 from collections import defaultdict
