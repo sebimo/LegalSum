@@ -1,3 +1,5 @@
+# Contains the code to use the word embeddings.
+# ATTENTION: Those are not included in this repository. If you want to access them please contact the owner of the repository. 
 import os
 import io
 from pathlib import Path

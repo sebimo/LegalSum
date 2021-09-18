@@ -1,5 +1,4 @@
 # Contains all the preprocessing code + data loading
-# We want to test a more bare-metal version of this as well
 import io
 import os
 import json
