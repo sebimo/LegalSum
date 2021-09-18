@@ -36,7 +36,7 @@ def iterate_nrw():
     input("Go?")
 
     # We first need to move to the startpage
-    """for page in range(1, start_page):
+    for page in range(1, start_page):
         try:
             actions = ActionChains(browser)
             page_button = browser.find_element_by_name("page"+str(page))
@@ -46,7 +46,7 @@ def iterate_nrw():
             time.sleep(0.3)
         except:
             time.sleep(1.2)
-            continue"""
+            continue
 
     for page in tqdm(range(start_page, num_pages), total=num_pages-start_page+1):
         actions = ActionChains(browser)

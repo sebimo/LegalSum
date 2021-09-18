@@ -146,7 +146,7 @@ def process_otto(source: Path, destination: Path, error_path: Path=Path("error_f
         #folders = ["OttoSchmidt_BGHV_2017-2020"]
 
         # TODO change this path to your own OttoSchmidt path
-        source = Path("..")/".."/"HiWi"/"Urteile"
+        source = Path("..")
 
         for folder in folders:
             filepath = source/folder
@@ -293,7 +293,7 @@ def get_segment_sentences(nlp: German, segment: List[str]) -> List[str]:
             sentences.append(s.text)
     return sentences
 
-def otto_process_paragraph(paragraph, normDB: NormDatabase) -> (str, List[str]):
+def otto_process_paragraph(paragraph, normDB: NormDatabase) -> Tuple[str, List[str]]:
     """ Creates a continous string for the paragraph and replaces all the found norms with their placeholder 
     Returns:
         str -- continous version of the paragraph
@@ -448,5 +448,5 @@ def update_file_counter(source, counter):
         pickle.dump(counter, f)
 
 if __name__ == "__main__":
-    process_otto(Path("..")/"HiWi"/"Urteile", Path("processed_data_otto"))
+    process_otto(Path(".."), Path("processed_data_otto"))
     #process_otto(Path("test_otto_data"), Path("test_otto_json"))
