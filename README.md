@@ -1,7 +1,7 @@
 ## Paper
-This is the code used for PAPER.
+This is the code used for the [Summarization of German Court Rulings](https://aclanthology.org/2021.nllp-1.19.pdf) paper.
 
-LINK TO PAPER
+The dataset will be made available shortly.
 
 # LegalSum
 Codebase for the summarization of German court rulings. This includes:
