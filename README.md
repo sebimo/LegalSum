@@ -1,7 +1,7 @@
 ## Paper
 This is the code used for the [Summarization of German Court Rulings](https://aclanthology.org/2021.nllp-1.19.pdf) paper.
 
-The dataset will be made available shortly.
+The dataset is available via this [Dropbox link](https://www.dropbox.com/s/23mrviv5396rdl0/LegalSum.zip?dl=0). 
 
 # LegalSum
 Codebase for the summarization of German court rulings. This includes:
