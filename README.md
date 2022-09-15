@@ -15,6 +15,23 @@ Codebase for the summarization of German court rulings. This includes:
 ## Dataset
 Around 100.000 guiding principles (legal summarizations) from German courts with a total number of with 300k-400k summarization sentences.
 
+The dataset consists of one JSON file per judgment. Each judgment has at least one summarization sentence. The data within a JSON file is structured via the following entries:
+
+| Key   |      Value      |
+|----------|:-------------:|
+| "id" |  Assigned "Aktenzeichen" or ID for that judgment |
+| "date" |    Date format: YYYY-MM-DD |
+| "court" | Which court produced the judgment. Format [type] [place], with [type] denoting the instance level. Not necesssarily only two words. |
+| "normchain" | The normchain assigned to the judgment. List[str] with each entry one normchain part. |
+| "norms" | Dictionary with norm and normplacerholders. If possible the norms within the texts are replaced with a placeholder. This might introduces some errors, but the norms can be easily pasted again into the texts. |
+| "inst" | Previous instance that deal with the specific case List[str] |
+| "keywords" | Keywords assigned to the judgment List[str] |
+| "title" | Title assigned to the judgment List[str] |
+| "guiding_principle" | Contains two list entries with each containing a varying number of sentences. The first entry corresponds to the "official" guiding principle sentences assigned by a court, whereas the second entry contains the "editorial" sentences by a third party. In this paper, they were treated equally and simply concatenated as they were always taken from the same original source judgment. List[List[str]] |
+| "tenor" | The immediate legal consequences of the judgment. Also some kind of summary, but not so interesting to study as it can be created much easier with templates List[str] |
+| "facts" | The facts of the judgment List[str] |
+| "reasoning" | The reasoning of the judgment List[str] |
+
 ## Usage
 
 Install the requirements with the ```environment.yml``` into a conda enviroment. 
